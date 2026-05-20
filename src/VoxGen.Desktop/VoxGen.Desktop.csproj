@@ -9,9 +9,9 @@
     <RootNamespace>VoxGen.Desktop</RootNamespace>
     <AssemblyName>VoxGen</AssemblyName>
     <AssemblyTitle>VoxGen</AssemblyTitle>
-    <Version>2.0.7</Version>
-    <FileVersion>2.0.7.0</FileVersion>
-    <InformationalVersion>2.0.7-preview</InformationalVersion>
+    <Version>2.0.8</Version>
+    <FileVersion>2.0.8.0</FileVersion>
+    <InformationalVersion>2.0.8-preview</InformationalVersion>
     <!-- Branded exe / taskbar icon (PRD §15). -->
     <ApplicationIcon>Assets\voxgen.ico</ApplicationIcon>
   </PropertyGroup>

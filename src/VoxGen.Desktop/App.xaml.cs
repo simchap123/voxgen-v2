@@ -9,6 +9,7 @@ using VoxGen.Desktop.Backend;
 using VoxGen.Desktop.Clipboard;
 using VoxGen.Desktop.Core;
 using VoxGen.Desktop.Hotkeys;
+using VoxGen.Desktop.Installer;
 using VoxGen.Desktop.License;
 using VoxGen.Desktop.Logging;
 using VoxGen.Desktop.Overlay;
@@ -22,6 +23,9 @@ namespace VoxGen.Desktop;
 public partial class App : Application
 {
     private const string SingletonMutexName = @"Global\VoxGen-Desktop-Singleton-{D8F2E5F4-8A4F-4B1B-A7D6-9B5E2C3D1F4A}";
+
+    /// <summary>Single source for the display version (logs + uninstall registry entry).</summary>
+    private const string AppVersion = "2.0.7";
 
     private Mutex? _singletonMutex;
     private bool _ownsMutex;
@@ -57,6 +61,16 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Uninstall entry point: Windows "Installed apps → Uninstall" runs `VoxGen.exe --uninstall`.
+        // Tear down (registry entry + %APPDATA%\VoxGen + self-delete) and exit before any normal
+        // init, so we don't take the singleton mutex or spin up the tray.
+        if (Array.Exists(e.Args, a => string.Equals(a, InstallRegistration.UninstallArg, StringComparison.OrdinalIgnoreCase)))
+        {
+            InstallRegistration.Uninstall();
+            Shutdown(exitCode: 0);
+            return;
+        }
+
         _singletonMutex = new Mutex(initiallyOwned: true, SingletonMutexName, out _ownsMutex);
         if (!_ownsMutex)
         {
@@ -66,7 +80,11 @@ public partial class App : Application
 
         Paths.EnsureCreated();
         Logger = new FileLogger(Paths.LogsDirectory);
-        Logger.Info("VoxGen starting", new() { ["version"] = "2.0.6" });
+        Logger.Info("VoxGen starting", new() { ["version"] = AppVersion });
+
+        // Register a per-user "Installed apps" entry so the portable exe is uninstallable the normal
+        // Windows way. Best-effort; no-ops for dev/`dotnet run`.
+        InstallRegistration.EnsureRegistered(AppVersion, Logger);
 
         try
         {

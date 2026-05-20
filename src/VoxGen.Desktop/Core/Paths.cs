@@ -11,6 +11,9 @@ public static class Paths
     private static readonly string AppDataRoot =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VoxGen");
 
+    /// <summary>Root of all VoxGen user data (%APPDATA%\VoxGen). Used by uninstall to clean up.</summary>
+    public static string AppDataDirectory => AppDataRoot;
+
     public static string SettingsFile => Path.Combine(AppDataRoot, "settings.json");
     public static string SessionTokenFile => Path.Combine(AppDataRoot, "session.bin");
     public static string LicenseCacheFile => Path.Combine(AppDataRoot, "license.json");

@@ -65,7 +65,7 @@ public partial class SignInWindow : Window
         catch (SupabaseAuthException ex)
         {
             _logger.Warning("Sign-in failed", new() { ["status"] = (int)ex.StatusCode, ["error"] = ex.Message });
-            ShowError(ex.Message);
+            ShowError(FriendlyAuthError(ex));
         }
         catch (Exception ex)
         {
@@ -91,8 +91,33 @@ public partial class SignInWindow : Window
     private void ShowError(string message)
     {
         StatusText.Text = message;
-        StatusText.Visibility = Visibility.Visible;
+        StatusContainer.Visibility = Visibility.Visible;
+        InvalidateMeasure(); // window is SizeToContent — let it grow for the error.
     }
 
-    private void HideError() => StatusText.Visibility = Visibility.Collapsed;
+    private void HideError() => StatusContainer.Visibility = Visibility.Collapsed;
+
+    /// <summary>Turn raw Supabase auth errors into something a tester can act on.</summary>
+    private static string FriendlyAuthError(SupabaseAuthException ex)
+    {
+        // 429 = Supabase auth/email rate limit. The most common cause is "Confirm email" being
+        // enabled (every signup tries to send a mail and trips the limit). Surfaced plainly here.
+        if ((int)ex.StatusCode == 429)
+        {
+            return "Too many attempts right now. Wait a minute and try again.";
+        }
+
+        var msg = ex.Message ?? string.Empty;
+        if (msg.Contains("Invalid login", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("invalid credentials", StringComparison.OrdinalIgnoreCase))
+        {
+            return "That email or password doesn't match. Try again, or create an account.";
+        }
+        if (msg.Contains("without a usable session", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("confirm", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Your account needs email confirmation before you can sign in.";
+        }
+        return string.IsNullOrWhiteSpace(msg) ? "Sign-in failed. Please try again." : msg;
+    }
 }

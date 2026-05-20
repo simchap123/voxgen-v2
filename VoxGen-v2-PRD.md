@@ -73,6 +73,15 @@ The engine is built first and proven end to end. While building it, transcriptio
 
 The public launch waits until the engine and backend are both ready. This is a deliberate, accepted tradeoff: a slightly later launch in exchange for the "download and it just works" experience being real on day one.
 
+### 3.4 Preview release (`v2.0.0-preview`) — interim, deliberate deviation
+
+Ahead of the GA launch above, a **preview build ships publicly for early testers** (GitHub release). It knowingly deviates from §3.3 and §2/§20 on two points:
+
+- **On-device STT instead of the backend.** The preview bundles a local Whisper `tiny.en` model (via Whisper.net) as the transcription path, so testers get real speech-to-text with **no account and no cloud key** while the managed backend is still being built. The `ITranscriptionProvider` seam swaps this for `VoxGenManagedProvider` automatically once `BackendConfig` holds real values. Whether local STT remains at GA (e.g. as a bring-your-own-compute option) is an open question.
+- **Unsigned.** The preview is not yet code-signed (§14.3), so Windows SmartScreen warns on install. Acceptable for opt-in testers; **not** acceptable for GA.
+
+The §3.3 rule still governs **GA (1.0)**: managed engine + backend, signed, shipped together. The preview is a labelled testing vehicle, not the 1.0 launch.
+
 ---
 
 ## 4. Target user

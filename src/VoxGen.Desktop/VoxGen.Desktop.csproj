@@ -46,10 +46,11 @@
   </ItemGroup>
 
   <!--
-    DEV STOPGAP — local Whisper STT (PRD §2/§20 list on-device models as out-of-scope; §6.2
-    requires approval for non-sanctioned packages). Approved as temporary dev scaffolding only,
-    so the hotkey loop transcribes real speech until the managed Groq backend is wired. REMOVE
-    (these two packages + WhisperLocalTranscriptionProvider) before any production release.
+    LOCAL PREVIEW (v2.0.0-preview) — on-device Whisper STT. PRD §2/§20 keep on-device models out of
+    scope for GA and §6.2 needs approval for non-sanctioned packages; both are deliberately waived
+    for the preview release (PRD §3.4) so early testers get real transcription before the managed
+    Groq backend exists. The provider is swapped for VoxGenManagedProvider automatically once
+    BackendConfig holds real values — revisit whether Whisper stays at GA then.
   -->
   <ItemGroup>
     <PackageReference Include="Whisper.net" Version="1.9.0" />

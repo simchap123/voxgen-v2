@@ -10,11 +10,12 @@ using Whisper.net;
 namespace VoxGen.Desktop.Transcription;
 
 /// <summary>
-/// DEV STOPGAP — on-device transcription via Whisper <c>tiny.en</c> (whisper.cpp through Whisper.net),
-/// so the hotkey loop transcribes real speech with no cloud key until <see cref="VoxGenManagedProvider"/>
-/// is wired. NOT for production: PRD §2/§20 put local models out of scope, and §6.2 bans the packages —
-/// this is temporary scaffolding behind the <see cref="ITranscriptionProvider"/> seam, same category as
-/// <see cref="StubTranscriptionProvider"/>. Remove with the Whisper.net packages before shipping.
+/// LOCAL PREVIEW (v2.0.0-preview) — on-device transcription via Whisper <c>tiny.en</c> (whisper.cpp
+/// through Whisper.net), so testers get real transcription with no account or cloud key until
+/// <see cref="VoxGenManagedProvider"/> + the managed backend exist. PRD §2/§20 keep local models out
+/// of scope for GA and §6.2 needs package approval — both deliberately waived for the preview per
+/// PRD §3.4. Lives behind the <see cref="ITranscriptionProvider"/> seam and is auto-swapped for the
+/// managed provider once BackendConfig is real.
 ///
 /// tiny.en is the smallest/fastest Whisper model (~75 MB). Input is the 16 kHz mono WAV that
 /// <c>NAudioCapture</c> already produces — exactly what whisper.cpp wants, so no resampling here.

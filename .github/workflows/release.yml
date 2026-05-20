@@ -59,5 +59,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: VoxGen-win-x64.zip
-          prerelease: true
+          # Not flagged prerelease so GitHub keeps it as "Latest" — that's what makes
+          # /releases/latest/download/VoxGen-win-x64.zip resolve as a permanent download link.
+          prerelease: false
+          make_latest: true
           generate_release_notes: true

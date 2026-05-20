@@ -47,6 +47,12 @@ public sealed record AppSettings
 
     public bool OverlayEnabled { get; init; } = true;
 
+    /// <summary>
+    /// Opt-in live/streaming dictation: types words as you speak instead of pasting on release.
+    /// Default OFF — the reliable hold→release→paste path stays the default (PRD §20 streaming).
+    /// </summary>
+    public bool LiveTypingEnabled { get; init; } = false;
+
     /// <summary>Transcription language code (e.g. "en", "es"). null = auto-detect.</summary>
     public string? Language { get; init; }
 

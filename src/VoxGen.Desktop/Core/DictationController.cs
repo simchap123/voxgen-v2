@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,19 +22,26 @@ public enum DictationState
 
 /// <summary>
 /// The recording state machine (PRD §7 core workflow). Sole subscriber to the hotkey service;
-/// drives capture → transcription → paste and updates the overlay at each transition.
+/// drives capture → transcription → output and updates the overlay at each transition.
 ///
-/// Threading: <see cref="HandlePressed"/> and <see cref="HandleReleasedAsync"/> must run on the UI
-/// thread (the overlay is WPF, the clipboard requires STA). <see cref="Attach"/> wires the hotkey
-/// events — which fire on the hotkey pump thread — and marshals them onto the UI thread via the
-/// injected <see cref="IUiDispatcher"/>. The methods are public so tests can drive them directly
-/// with fakes, no dispatcher needed.
+/// Two output modes:
+///  • <b>Commit-on-release</b> (default): record while held, transcribe once on release, paste.
+///  • <b>Live typing</b> (opt-in, <see cref="DictationController"/> constructed with a keystroke
+///    typer + enabled predicate): while held, transcribe the audio-so-far every ~1.2 s and type
+///    the <i>stabilized prefix</i> (words two consecutive passes agree on) into the focused window,
+///    append-only — no backspacing. On release, a final pass types any remaining words.
 ///
-/// Invariants: never lose the recording. On transcription failure the WAV is preserved to disk
-/// (PRD §8.4, §13); on paste failure the text is left on the clipboard by the paste pipeline (§8.8).
+/// Threading: <see cref="HandlePressed"/>/<see cref="HandleReleasedAsync"/> run on the UI thread
+/// (overlay is WPF, clipboard needs STA). The live loop runs on the thread pool; release cancels and
+/// awaits it before the final pass, so the word-commit state is never touched concurrently.
+///
+/// Invariants: never lose the recording. On transcription failure the WAV is preserved (§8.4, §13);
+/// on paste failure the text is left on the clipboard by the paste pipeline (§8.8).
 /// </summary>
 public sealed class DictationController
 {
+    private const int LiveIntervalMs = 1200;
+
     private readonly IAudioCapture _capture;
     private readonly ITranscriptionProvider _provider;
     private readonly IClipboardPaste _paste;
@@ -41,8 +49,18 @@ public sealed class DictationController
     private readonly Func<bool> _isPaused;
     private readonly ILogger _logger;
     private readonly Func<AudioClip, string?> _preserveRecording;
+    private readonly Func<bool> _liveTypingEnabled;
+    private readonly IKeystrokeTyper? _typer;
 
     private IntPtr _targetWindow;
+
+    // Live-typing state (only touched by the live loop, or by release after the loop is awaited).
+    private CancellationTokenSource? _liveCts;
+    private Task? _liveLoop;
+    private readonly List<string> _committedWords = new();
+    private string[]? _lastInterimWords;
+    private bool _anyTyped;
+    private bool _liveActive;
 
     public DictationState State { get; private set; } = DictationState.Idle;
 
@@ -53,7 +71,9 @@ public sealed class DictationController
         IRecordingOverlay overlay,
         Func<bool> isPaused,
         ILogger logger,
-        Func<AudioClip, string?>? preserveRecording = null)
+        Func<AudioClip, string?>? preserveRecording = null,
+        Func<bool>? liveTypingEnabled = null,
+        IKeystrokeTyper? keystrokeTyper = null)
     {
         _capture = capture ?? throw new ArgumentNullException(nameof(capture));
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
@@ -62,6 +82,8 @@ public sealed class DictationController
         _isPaused = isPaused ?? throw new ArgumentNullException(nameof(isPaused));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _preserveRecording = preserveRecording ?? DefaultPreserveRecording;
+        _liveTypingEnabled = liveTypingEnabled ?? (() => false);
+        _typer = keystrokeTyper;
     }
 
     /// <summary>Subscribe to the hotkey service, marshalling its (pump-thread) events to the UI thread.</summary>
@@ -87,14 +109,14 @@ public sealed class DictationController
             return;
         }
 
-        // §8.5 — the foreground window was captured by the hotkey service at the instant of press.
         _targetWindow = foregroundWindow;
         try
         {
             _capture.Start();
             State = DictationState.Recording;
             _overlay.SetState(OverlayState.Recording);
-            _logger.Info("Recording started", new() { ["hwnd"] = foregroundWindow.ToInt64() });
+            StartLiveIfEnabled();
+            _logger.Info("Recording started", new() { ["hwnd"] = foregroundWindow.ToInt64(), ["live"] = _liveActive });
         }
         catch (Exception ex)
         {
@@ -104,7 +126,7 @@ public sealed class DictationController
         }
     }
 
-    /// <summary>Stop recording, transcribe, and paste into the captured window. UI thread.</summary>
+    /// <summary>Stop recording, transcribe, and output (paste, or type the remainder in live mode). UI thread.</summary>
     public async Task HandleReleasedAsync()
     {
         if (State != DictationState.Recording)
@@ -115,6 +137,17 @@ public sealed class DictationController
 
         State = DictationState.Transcribing;
 
+        // Stop the live streaming loop (if any) before the final pass so word-commit state is stable.
+        if (_liveActive)
+        {
+            _liveCts?.Cancel();
+            try { if (_liveLoop is not null) await _liveLoop.ConfigureAwait(true); }
+            catch (Exception ex) { _logger.Warning("Live loop end raised", new() { ["error"] = ex.Message }); }
+            _liveCts?.Dispose();
+            _liveCts = null;
+            _liveLoop = null;
+        }
+
         AudioClip? clip;
         try
         {
@@ -124,6 +157,7 @@ public sealed class DictationController
         {
             _logger.Error("Failed to stop capture", new() { ["error"] = ex.Message });
             _overlay.ShowError("Recording failed");
+            _liveActive = false;
             State = DictationState.Idle;
             return;
         }
@@ -132,6 +166,7 @@ public sealed class DictationController
         {
             _logger.Warning("No audio captured");
             _overlay.SetState(OverlayState.Hidden);
+            _liveActive = false;
             State = DictationState.Idle;
             return;
         }
@@ -153,23 +188,123 @@ public sealed class DictationController
                 ["savedTo"] = savedPath ?? "(save failed)",
             });
             _overlay.ShowError("Couldn't transcribe — recording saved");
+            _liveActive = false;
             State = DictationState.Idle;
             return;
         }
 
-        State = DictationState.Pasting;
-        var paste = _paste.PasteInto(_targetWindow, result.FinalText);
-        if (paste.Outcome == PasteOutcome.LeftOnClipboard)
+        if (_liveActive)
         {
-            _logger.Warning("Paste failed — text left on clipboard", new() { ["error"] = paste.Error });
-            _overlay.ShowError("Pasted to clipboard — press Ctrl+V");
+            // Already typing live — type only the words not yet committed; never paste (would duplicate).
+            CommitRemaining(result.FinalText);
+            _overlay.SetState(OverlayState.Hidden);
+            _logger.Info("Live dictation finalized", new() { ["words"] = _committedWords.Count });
+            _liveActive = false;
         }
         else
         {
-            _logger.Info("Dictation pasted", new() { ["chars"] = result.FinalText.Length });
-            _overlay.SetState(OverlayState.Hidden);
+            State = DictationState.Pasting;
+            var paste = _paste.PasteInto(_targetWindow, result.FinalText);
+            if (paste.Outcome == PasteOutcome.LeftOnClipboard)
+            {
+                _logger.Warning("Paste failed — text left on clipboard", new() { ["error"] = paste.Error });
+                _overlay.ShowError("Pasted to clipboard — press Ctrl+V");
+            }
+            else
+            {
+                _logger.Info("Dictation pasted", new() { ["chars"] = result.FinalText.Length });
+                _overlay.SetState(OverlayState.Hidden);
+            }
         }
+
         State = DictationState.Idle;
+    }
+
+    // ---------- live streaming ----------
+
+    private void StartLiveIfEnabled()
+    {
+        _liveActive = _liveTypingEnabled() && _typer is not null;
+        if (!_liveActive) return;
+
+        _committedWords.Clear();
+        _lastInterimWords = null;
+        _anyTyped = false;
+        _liveCts = new CancellationTokenSource();
+        var token = _liveCts.Token;
+        _liveLoop = Task.Run(() => LiveLoopAsync(token));
+    }
+
+    private async Task LiveLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(LiveIntervalMs, ct).ConfigureAwait(false);
+
+                var wav = _capture.SnapshotWav();
+                if (wav is null || wav.Length == 0) continue;
+
+                TranscriptionResult interim;
+                try
+                {
+                    interim = await _provider.TranscribeAsync(
+                        new AudioClip { WavBytes = wav, SampleRate = 16000, Channels = 1, Duration = TimeSpan.Zero },
+                        ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    _logger.Warning("Live interim transcription failed", new() { ["error"] = ex.Message });
+                    continue;
+                }
+
+                CommitStable(interim.FinalText);
+            }
+        }
+        catch (OperationCanceledException) { /* expected when release cancels the loop */ }
+    }
+
+    /// <summary>Type the leading words that two consecutive interim passes agree on (append-only).</summary>
+    private void CommitStable(string text)
+    {
+        var words = Tokenize(text);
+        int stable = _lastInterimWords is null ? 0 : CommonPrefixWords(_lastInterimWords, words);
+        for (int i = _committedWords.Count; i < stable; i++)
+        {
+            TypeWord(words[i]);
+            _committedWords.Add(words[i]);
+        }
+        _lastInterimWords = words;
+    }
+
+    /// <summary>On release, the final transcription is treated as fully stable: type whatever's left.</summary>
+    private void CommitRemaining(string text)
+    {
+        var words = Tokenize(text);
+        for (int i = _committedWords.Count; i < words.Length; i++)
+        {
+            TypeWord(words[i]);
+            _committedWords.Add(words[i]);
+        }
+    }
+
+    private void TypeWord(string word)
+    {
+        _typer!.TypeText(_anyTyped ? " " + word : word);
+        _anyTyped = true;
+    }
+
+    private static string[] Tokenize(string text) =>
+        text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+
+    private static int CommonPrefixWords(string[] a, string[] b)
+    {
+        int n = Math.Min(a.Length, b.Length);
+        int i = 0;
+        while (i < n && string.Equals(a[i], b[i], StringComparison.Ordinal)) i++;
+        return i;
     }
 
     private string? DefaultPreserveRecording(AudioClip clip)

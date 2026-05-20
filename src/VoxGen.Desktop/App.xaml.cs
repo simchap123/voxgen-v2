@@ -250,7 +250,9 @@ public partial class App : Application
         }
 
         _controller = new DictationController(
-            _audioCapture, provider, _clipboardPaste, _overlay, () => _isPaused, Logger);
+            _audioCapture, provider, _clipboardPaste, _overlay, () => _isPaused, Logger,
+            liveTypingEnabled: () => SettingsService.Current.LiveTypingEnabled,
+            keystrokeTyper: new KeystrokeTyper(Logger));
     }
 
     // -------- hotkeys --------

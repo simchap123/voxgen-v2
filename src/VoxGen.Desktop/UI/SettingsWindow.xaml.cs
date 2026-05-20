@@ -76,6 +76,7 @@ public partial class SettingsWindow : Window
         try
         {
             CleanupToggle.IsChecked = s.CleanupEnabled;
+            LiveTypingToggle.IsChecked = s.LiveTypingEnabled;
             HotkeyDisplay.Text = s.HotkeyValue;
             ModeHold.IsChecked = s.HotkeyMode == HotkeyMode.Hold;
             ModeToggle.IsChecked = s.HotkeyMode == HotkeyMode.Toggle;
@@ -105,6 +106,16 @@ public partial class SettingsWindow : Window
         if (!_settings.TryUpdate(c => c with { CleanupEnabled = requested }, out var error))
         {
             ReportSaveFailure("AI cleanup", error);
+        }
+    }
+
+    private void OnLiveTypingToggleClick(object sender, RoutedEventArgs e)
+    {
+        if (_suppress) return;
+        var requested = LiveTypingToggle.IsChecked == true;
+        if (!_settings.TryUpdate(c => c with { LiveTypingEnabled = requested }, out var error))
+        {
+            ReportSaveFailure("live typing", error);
         }
     }
 

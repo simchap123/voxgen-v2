@@ -36,6 +36,12 @@ public interface IAudioCapture : IDisposable
     /// <summary>Stop capturing and return the recording as a WAV <see cref="AudioClip"/>, or null if nothing was captured.</summary>
     Task<AudioClip?> StopAsync();
 
+    /// <summary>
+    /// Returns the audio captured so far this recording as a 16 kHz mono WAV, WITHOUT stopping —
+    /// for live/streaming transcription. Null if not recording or nothing captured yet. Thread-safe.
+    /// </summary>
+    byte[]? SnapshotWav();
+
     bool IsRecording { get; }
 
     /// <summary>Fires periodically with the normalized input level while recording.</summary>

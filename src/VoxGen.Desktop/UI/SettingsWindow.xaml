@@ -108,6 +108,23 @@
                       Click="OnCleanupToggleClick" />
           </Grid>
 
+          <!-- Live typing (opt-in, experimental). Default OFF; flows through SettingsService. -->
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="Live typing (experimental)" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="Type words as you speak instead of pasting when you release. Lower latency feel, but less accurate and more CPU."
+                         Style="{DynamicResource MutedTextStyle}" />
+            </StackPanel>
+            <CheckBox x:Name="LiveTypingToggle"
+                      Grid.Column="1"
+                      VerticalAlignment="Center"
+                      Click="OnLiveTypingToggleClick" />
+          </Grid>
+
           <!-- Microphone picker. Persists SelectedMicrophoneId (authoritative) + name (display)
                via SettingsService; App re-initializes capture when the id changes. -->
           <Grid Margin="0,0,0,16">

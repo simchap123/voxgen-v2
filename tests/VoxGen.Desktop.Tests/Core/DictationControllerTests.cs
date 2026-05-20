@@ -142,6 +142,27 @@ public sealed class DictationControllerTests
     }
 
     [Fact]
+    public async Task Live_mode_types_final_text_and_does_not_paste()
+    {
+        // SnapshotWav returns null, so the interim streaming loop produces nothing within the test;
+        // on release, the final transcription is typed (CommitRemaining) and never pasted.
+        var cap = new FakeAudioCapture { ClipToReturn = SampleClip() };
+        var prov = new FakeProvider { Result = Result("hello world") };
+        var paste = new FakePaste();
+        var overlay = new FakeOverlay();
+        var typer = new FakeTyper();
+        var c = new DictationController(cap, prov, paste, overlay, () => false, new TestLogger(),
+            preserveRecording: clip => "x", liveTypingEnabled: () => true, keystrokeTyper: typer);
+
+        c.HandlePressed(Hwnd);
+        await c.HandleReleasedAsync();
+
+        Assert.Equal(DictationState.Idle, c.State);
+        Assert.Equal(0, paste.PasteCalls);                 // live mode types, never pastes
+        Assert.Equal("hello world", typer.Typed.ToString());
+    }
+
+    [Fact]
     public async Task Released_without_recording_is_ignored()
     {
         var prov = new FakeProvider();
@@ -177,6 +198,7 @@ public sealed class DictationControllerTests
             LevelChanged?.Invoke(this, new AudioLevelEventArgs(0f)); // touch event to satisfy analyzer
         }
         public Task<AudioClip?> StopAsync() { StopCalls++; IsRecording = false; return Task.FromResult(ClipToReturn); }
+        public byte[]? SnapshotWav() => null; // interim streaming not exercised in these tests
         public void Dispose() { }
     }
 
@@ -208,5 +230,11 @@ public sealed class DictationControllerTests
         public string? LastError;
         public void SetState(OverlayState state) => LastState = state;
         public void ShowError(string message) => LastError = message;
+    }
+
+    private sealed class FakeTyper : IKeystrokeTyper
+    {
+        public readonly System.Text.StringBuilder Typed = new();
+        public void TypeText(string text) => Typed.Append(text);
     }
 }

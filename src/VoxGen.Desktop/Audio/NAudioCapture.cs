@@ -218,6 +218,30 @@ public sealed class NAudioCapture : IAudioCapture
         }
     }
 
+    public byte[]? SnapshotWav()
+    {
+        byte[] nativePcm;
+        WaveFormat? captureFormat;
+        lock (_sync)
+        {
+            if (_disposed || !_isRecording || _pcmBuffer is null || _captureFormat is null) return null;
+            // Cheap copy of the in-progress buffer; BuildWav is static/pure so we run it off the lock.
+            nativePcm = _pcmBuffer.ToArray();
+            captureFormat = _captureFormat;
+        }
+
+        if (nativePcm.Length == 0) return null;
+        try
+        {
+            return BuildWav(nativePcm, captureFormat, out _);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning("Snapshot WAV build failed", new() { ["error"] = ex.Message });
+            return null;
+        }
+    }
+
     public void Dispose()
     {
         lock (_sync)

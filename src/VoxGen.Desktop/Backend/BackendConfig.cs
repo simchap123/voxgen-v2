@@ -24,13 +24,11 @@ public static class BackendConfig
     /// Supabase project URL (PRD §6.4). Used for auth REST calls
     /// (<c>{url}/auth/v1/token</c>, <c>{url}/auth/v1/signup</c>, etc.).
     /// </summary>
-    public const string SupabaseUrl = "REPLACE_AT_BUILD";
+    public const string SupabaseUrl = "https://xsdngjfnsszulezxvsjd.supabase.co";
 
     /// <summary>
-    /// Supabase anon (publishable) key — required as the <c>apikey</c> header for every
-    /// Supabase REST call. Not a secret in the sense an API key is; safe to ship in the
-    /// client per Supabase's design. Still substituted at build time so dev and prod
-    /// values don't get mixed up.
+    /// Supabase publishable (anon) key — required as the <c>apikey</c> header for every
+    /// Supabase REST call. Safe to ship in the client by Supabase's design (RLS protects data).
     /// </summary>
-    public const string SupabaseAnonKey = "REPLACE_AT_BUILD";
+    public const string SupabaseAnonKey = "sb_publishable_4vg9iXKj_H0Hzsxd1bGjQA_l1-Y1H2X";
 }

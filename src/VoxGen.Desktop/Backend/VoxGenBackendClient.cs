@@ -52,6 +52,8 @@ public sealed class VoxGenBackendClient
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        // Backend returns license state as a snake_case string (e.g. "active", "not_activated").
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
     };
 
     private readonly HttpClient _http;
@@ -66,9 +68,10 @@ public sealed class VoxGenBackendClient
     }
 
     /// <summary>
-    /// POST /v1/transcribe (multipart). Sends the WAV bytes + options + bearer token,
-    /// returns the final text. The audio is NOT persisted by the backend (PRD §9.3) and
-    /// the WAV is NOT deleted by this method (PRD §5.3, §8.4 — caller owns audio lifecycle).
+    /// POST /api/v2/transcribe (base64 JSON). Sends the WAV (base64) + options + bearer token,
+    /// returns the final text. base64 JSON matches the Vercel serverless backend (no native
+    /// multipart parsing there). Audio is NOT persisted by the backend (PRD §9.3) and the WAV is
+    /// NOT deleted by this method (PRD §5.3, §8.4 — caller owns audio lifecycle).
     /// </summary>
     public async Task<BackendTranscriptionResult> TranscribeAsync(
         byte[] wavBytes,
@@ -80,19 +83,17 @@ public sealed class VoxGenBackendClient
         if (string.IsNullOrEmpty(accessToken)) throw new ArgumentException("Access token required.", nameof(accessToken));
         if (options is null) throw new ArgumentNullException(nameof(options));
 
-        using var content = new MultipartFormDataContent();
-
-        var audio = new ByteArrayContent(wavBytes);
-        audio.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
-        content.Add(audio, name: "audio", fileName: "recording.wav");
-
-        if (!string.IsNullOrEmpty(options.Language))
+        var body = new
         {
-            content.Add(new StringContent(options.Language!), "language");
-        }
-        content.Add(new StringContent(options.CleanupEnabled ? "true" : "false"), "cleanup_enabled");
+            Audio = Convert.ToBase64String(wavBytes),
+            Language = string.IsNullOrEmpty(options.Language) ? null : options.Language,
+            CleanupEnabled = options.CleanupEnabled,
+        };
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, "v1/transcribe") { Content = content };
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/v2/transcribe")
+        {
+            Content = JsonContent.Create(body, options: JsonOptions),
+        };
         ApplyDefaultHeaders(req, accessToken);
 
         HttpResponseMessage response;
@@ -134,7 +135,7 @@ public sealed class VoxGenBackendClient
     {
         if (string.IsNullOrEmpty(accessToken)) throw new ArgumentException("Access token required.", nameof(accessToken));
 
-        using var req = new HttpRequestMessage(HttpMethod.Get, "v1/license");
+        using var req = new HttpRequestMessage(HttpMethod.Get, "api/v2/license");
         ApplyDefaultHeaders(req, accessToken);
 
         HttpResponseMessage response;

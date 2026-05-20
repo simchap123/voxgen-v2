@@ -18,7 +18,9 @@ public static class BackendConfig
     /// Base URL for the VoxGen-managed backend (PRD §9). Endpoints live under this,
     /// e.g. <c>{base}/v1/transcribe</c>, <c>{base}/v1/license</c>.
     /// </summary>
-    public const string VoxGenBackendBaseUrl = "REPLACE_AT_BUILD";
+    // The existing Vercel deployment (v1 repo's api/), which now also serves the v2 endpoints
+    // /api/v2/transcribe and /api/v2/license (Supabase-auth + Groq, reusing GROQ_API_KEY).
+    public const string VoxGenBackendBaseUrl = "https://voxgenflow.vercel.app";
 
     /// <summary>
     /// Supabase project URL (PRD §6.4). Used for auth REST calls

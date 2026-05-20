@@ -18,10 +18,14 @@ public static class Paths
     public static string TempAudioDirectory => Path.Combine(AppDataRoot, "temp-audio");
     public static string LogsDirectory => Path.Combine(AppDataRoot, "logs");
 
+    /// <summary>Local STT model files (dev stopgap — Whisper ggml). Not used by the shipped managed path.</summary>
+    public static string ModelsDirectory => Path.Combine(AppDataRoot, "models");
+
     public static void EnsureCreated()
     {
         Directory.CreateDirectory(AppDataRoot);
         Directory.CreateDirectory(TempAudioDirectory);
         Directory.CreateDirectory(LogsDirectory);
+        Directory.CreateDirectory(ModelsDirectory);
     }
 }

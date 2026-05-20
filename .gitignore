@@ -14,8 +14,10 @@ obj/
 # Packaging
 release/
 publish/
+dist/
 *.nupkg
 *.snupkg
+*.zip
 
 # Test results
 TestResults/

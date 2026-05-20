@@ -51,4 +51,12 @@ C# / .NET 10 · WPF · Win32 P/Invoke (global hotkeys, foreground-window capture
 
 ## Status
 
-Preview. Working: hotkey → record → local transcribe → paste, recording overlay, tray + settings (mic picker, hotkey recorder), reliable settings persistence. Not yet: managed cloud transcription + accounts, code signing, auto-update, local history UI. Roadmap and full scope live in [`VoxGen-v2-PRD.md`](VoxGen-v2-PRD.md).
+Preview. Working: hotkey → record → local transcribe → paste, recording overlay, tray + settings (mic picker, hotkey recorder), reliable settings persistence. Not yet: managed cloud transcription + accounts, code signing, auto-update, local history UI, live/streaming dictation. Roadmap and full scope live in [`VoxGen-v2-PRD.md`](VoxGen-v2-PRD.md).
+
+## License
+
+VoxGen is **source-available** (not OSI open-source): you may read it and build it for personal use, but not redistribute, resell, or build a competing product from it. See [`LICENSE`](LICENSE). Bundled third-party components (NAudio, Whisper.net, whisper.cpp, the Whisper model) keep their own MIT licenses. Commercial licensing: contact VoxGen.
+
+## Signing (maintainers)
+
+Releases are not yet code-signed, so SmartScreen warns on download. The path to fix it (free for this OSS project): [SignPath Foundation](https://signpath.org/) issues an OV-level certificate and signs via CI. Add the SignPath secrets, then enable the signing step in [`.github/workflows/release.yml`](.github/workflows/release.yml). Note: OV signing builds SmartScreen reputation over time rather than removing the warning instantly — only an EV certificate is instant (planned for GA).

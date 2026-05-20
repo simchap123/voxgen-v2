@@ -1,0 +1,61 @@
+name: release
+
+# Build, test, package, and publish a GitHub release whenever a v* tag is pushed:
+#   git tag v2.0.1-preview && git push origin v2.0.1-preview
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # needed to create the release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Test
+        run: dotnet test VoxGen.sln -c Release --nologo
+
+      - name: Publish (self-contained, no .NET needed to run)
+        run: >
+          dotnet publish src/VoxGen.Desktop/VoxGen.Desktop.csproj
+          -c Release -r win-x64 --self-contained true
+          -o dist/VoxGen-win-x64 --nologo
+
+      # --- Code signing (optional, off until SignPath is set up) -----------------
+      # Free for this open-source project via SignPath Foundation (https://signpath.org/).
+      # 1. Apply to the SignPath Foundation OSS program and connect this repo.
+      # 2. Add repo secret SIGNPATH_API_TOKEN and set the org/project/slug values below.
+      # 3. Uncomment to sign dist/VoxGen-win-x64/VoxGen.exe before zipping.
+      # OV signing builds SmartScreen reputation over time; it does not remove the
+      # warning instantly (only an EV cert does — planned for GA, PRD §14.3).
+      #
+      # - name: Sign
+      #   uses: signpath/github-action-submit-signing-request@v1
+      #   with:
+      #     api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+      #     organization-id: ${{ vars.SIGNPATH_ORG_ID }}
+      #     project-slug: voxgen-v2
+      #     signing-policy-slug: release-signing
+      #     artifact-configuration-slug: voxgen-exe
+      #     github-artifact-id: ${{ ... }}
+      #     wait-for-completion: true
+      # ---------------------------------------------------------------------------
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path dist/VoxGen-win-x64/* -DestinationPath "VoxGen-${{ github.ref_name }}-win-x64.zip"
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: VoxGen-*-win-x64.zip
+          prerelease: true
+          generate_release_notes: true

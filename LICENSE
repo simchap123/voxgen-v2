@@ -1,0 +1,39 @@
+VoxGen Source-Available License (Preview)
+Copyright © 2026 VoxGen. All rights reserved.
+
+This source code is published for transparency and to let individuals build and
+evaluate VoxGen for their own personal use. It is a SOURCE-AVAILABLE license, not
+an open-source (OSI-approved) license.
+
+You MAY, free of charge:
+  • View and study the source code.
+  • Build and run the software for your own personal, non-commercial use.
+  • Submit contributions (pull requests, issues) back to this repository.
+
+You MAY NOT, without prior written permission from VoxGen:
+  • Redistribute the software or modified versions, in source or binary form.
+  • Sell, sublicense, host, or otherwise offer the software — or any derivative,
+    or a product/service substantially based on it — whether free or for a fee.
+  • Use the software to build or operate a competing product or service.
+  • Remove, obscure, or alter VoxGen names, logos, or branding.
+
+All rights not expressly granted above are reserved by VoxGen. For commercial
+licensing, partnerships, or any use beyond the grants above, contact VoxGen.
+
+THIRD-PARTY COMPONENTS
+This repository depends on third-party software distributed under its own terms,
+which continue to govern those components (notably NAudio, Whisper.net, whisper.cpp,
+and the Whisper model weights — all under the MIT License). Nothing in this license
+restricts your rights under those licenses with respect to those components.
+
+NO WARRANTY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL VOXGEN OR ITS
+CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH
+THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+NOTE: This is a pragmatic preview license. Have it reviewed by a lawyer before the
+GA (1.0) launch, and revisit whether to relicense the client under MIT with an
+open-core model (open client + proprietary managed backend).

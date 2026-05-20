@@ -18,6 +18,7 @@ dist/
 *.nupkg
 *.snupkg
 *.zip
+*.exe
 
 # Test results
 TestResults/

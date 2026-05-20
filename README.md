@@ -61,6 +61,8 @@ Preview. Working: hotkey → record → local transcribe → paste, recording ov
 
 VoxGen is **source-available** (not OSI open-source): you may read it and build it for personal use, but not redistribute, resell, or build a competing product from it. See [`LICENSE`](LICENSE). Bundled third-party components (NAudio, Whisper.net, whisper.cpp, the Whisper model) keep their own MIT licenses. Commercial licensing: contact VoxGen.
 
-## Signing (maintainers)
+## Code signing
 
-Releases are not yet code-signed, so SmartScreen warns on download. The path to fix it (free for this OSS project): [SignPath Foundation](https://signpath.org/) issues an OV-level certificate and signs via CI. Add the SignPath secrets, then enable the signing step in [`.github/workflows/release.yml`](.github/workflows/release.yml). Note: OV signing builds SmartScreen reputation over time rather than removing the warning instantly — only an EV certificate is instant (planned for GA).
+Builds are signed via the [SignPath Foundation](https://signpath.org/) free OSS program — see [`CODE_SIGNING.md`](CODE_SIGNING.md) for the build & signing process. `VoxGen.exe` is built from source by GitHub Actions ([`.github/workflows/release.yml`](.github/workflows/release.yml)) and signed in the pipeline; no maintainer signs locally.
+
+> Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).

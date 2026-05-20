@@ -1,0 +1,27 @@
+using System;
+using System.IO;
+
+namespace VoxGen.Desktop.Core;
+
+/// <summary>
+/// Canonical filesystem locations for VoxGen. All user content lives under %APPDATA%\VoxGen — PRD §6.4.
+/// </summary>
+public static class Paths
+{
+    private static readonly string AppDataRoot =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VoxGen");
+
+    public static string SettingsFile => Path.Combine(AppDataRoot, "settings.json");
+    public static string SessionTokenFile => Path.Combine(AppDataRoot, "session.bin");
+    public static string LicenseCacheFile => Path.Combine(AppDataRoot, "license.json");
+    public static string HistoryDatabase => Path.Combine(AppDataRoot, "history.db");
+    public static string TempAudioDirectory => Path.Combine(AppDataRoot, "temp-audio");
+    public static string LogsDirectory => Path.Combine(AppDataRoot, "logs");
+
+    public static void EnsureCreated()
+    {
+        Directory.CreateDirectory(AppDataRoot);
+        Directory.CreateDirectory(TempAudioDirectory);
+        Directory.CreateDirectory(LogsDirectory);
+    }
+}

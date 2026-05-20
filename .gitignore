@@ -1,0 +1,36 @@
+# .NET build output
+bin/
+obj/
+*.user
+*.suo
+*.cache
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.DotSettings.user
+
+# Packaging
+release/
+publish/
+*.nupkg
+*.snupkg
+
+# Test results
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# Logs
+*.log
+logs/
+
+# Local user data
+**/AppData/
+local.settings.json
+
+# OS
+Thumbs.db
+.DS_Store

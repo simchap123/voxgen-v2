@@ -1,0 +1,82 @@
+<Window x:Class="VoxGen.Desktop.Overlay.OverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="VoxGen"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        Focusable="False"
+        IsTabStop="False"
+        ResizeMode="NoResize"
+        SizeToContent="WidthAndHeight"
+        FontFamily="{DynamicResource DmSansFont}">
+
+  <!--
+    Recording overlay — PRD §8.10, §8.5. A small unobtrusive bottom-centre pill.
+    Warm-light brand (CLAUDE.md UI/brand): cream pill, charcoal text, sage/red accents —
+    deliberately NOT the dark+glow look. Three states are toggled by SetState; ShowError
+    swaps to a destructive pill that auto-hides.
+
+    The window must never steal focus from the app being dictated into: WindowStyle=None +
+    ShowActivated=False keeps it from activating, and the SourceInitialized hook adds
+    WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW so it's click-through and stays
+    out of the foreground/alt-tab. See OverlayWindow.xaml.cs.
+  -->
+
+  <!-- Outer margin gives the drop shadow room so it isn't clipped by the window bounds. -->
+  <Border x:Name="PillRoot"
+          Margin="12"
+          CornerRadius="18"
+          Background="{DynamicResource BackgroundBrush}"
+          BorderBrush="{DynamicResource BorderBrush}"
+          BorderThickness="1"
+          Padding="14,8"
+          MinWidth="160"
+          MinHeight="32">
+    <Border.Resources>
+      <!-- Gentle pulse for the recording dot. Calm, ~1.2s cycle — not a frantic blink. -->
+      <Storyboard x:Key="PulseStoryboard" RepeatBehavior="Forever" AutoReverse="True">
+        <DoubleAnimation Storyboard.TargetName="StatusDot"
+                         Storyboard.TargetProperty="Opacity"
+                         From="1.0" To="0.35" Duration="0:0:0.7" />
+        <DoubleAnimation Storyboard.TargetName="DotScale"
+                         Storyboard.TargetProperty="ScaleX"
+                         From="1.0" To="0.8" Duration="0:0:0.7" />
+        <DoubleAnimation Storyboard.TargetName="DotScale"
+                         Storyboard.TargetProperty="ScaleY"
+                         From="1.0" To="0.8" Duration="0:0:0.7" />
+      </Storyboard>
+    </Border.Resources>
+    <Border.Effect>
+      <!-- Restrained, soft shadow — depth without glow. -->
+      <DropShadowEffect Color="#FF21262E"
+                        Direction="270"
+                        ShadowDepth="2"
+                        BlurRadius="14"
+                        Opacity="0.18" />
+    </Border.Effect>
+
+    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+      <!-- Status indicator. A pulsing red dot while recording; recoloured for other states. -->
+      <Ellipse x:Name="StatusDot"
+               Width="10" Height="10"
+               Margin="0,0,9,0"
+               VerticalAlignment="Center"
+               Fill="{DynamicResource DestructiveBrush}">
+        <Ellipse.RenderTransform>
+          <ScaleTransform x:Name="DotScale" CenterX="5" CenterY="5" ScaleX="1" ScaleY="1" />
+        </Ellipse.RenderTransform>
+      </Ellipse>
+
+      <TextBlock x:Name="StatusLabel"
+                 VerticalAlignment="Center"
+                 FontSize="{DynamicResource BodyFontSize}"
+                 FontWeight="Medium"
+                 Foreground="{DynamicResource ForegroundBrush}"
+                 Text="Recording…" />
+    </StackPanel>
+  </Border>
+</Window>

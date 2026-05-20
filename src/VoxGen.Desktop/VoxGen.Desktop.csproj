@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- WinForms interop for System.Windows.Forms.NotifyIcon (tray) — built into .NET, not a third-party package. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>VoxGen.Desktop</RootNamespace>
+    <AssemblyName>VoxGen</AssemblyName>
+    <AssemblyTitle>VoxGen</AssemblyTitle>
+    <Version>2.0.0</Version>
+    <FileVersion>2.0.0.0</FileVersion>
+    <InformationalVersion>2.0.0-dev</InformationalVersion>
+    <!-- Branded exe / taskbar icon (PRD §15). -->
+    <ApplicationIcon>Assets\voxgen.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <!--
+    DPAPI (System.Security.Cryptography.ProtectedData) needs NO package reference on
+    net10.0-windows — the type ships in the Windows Desktop framework. Confirmed by NU1510
+    ("will not be pruned… likely unnecessary"). This vindicates PRD §6.2's "Built into .NET".
+  -->
+
+  <ItemGroup>
+    <!--
+      UseWindowsForms + ImplicitUsings adds global `using System.Windows.Forms` and
+      `using System.Drawing`, which collide with WPF's System.Windows / System.Windows.Media
+      (Application, MessageBox, Clipboard, Color, Brush, …). The only WinForms/Drawing consumer is
+      Tray/ (explicit `WinForms =` alias + explicit `using System.Drawing`), so drop both implicit
+      globals to keep the WPF types unambiguous everywhere else.
+    -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <!--
+    Sanctioned third-party packages (PRD §6.2):
+      NAudio                — microphone capture (this slice)
+      Microsoft.Data.Sqlite — when /History lands
+      Velopack              — when /Updater lands
+    Anything else requires explicit approval.
+  -->
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Brand resources — merged in App.xaml so resource keys resolve everywhere. -->
+    <Page Update="UI\Resources\Brand.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <!-- Logo as a WPF Resource so the tray icon and window chrome can load it at runtime
+         (pack URI / Window.Icon). The same file is also embedded in the exe via ApplicationIcon. -->
+    <Resource Include="Assets\voxgen.ico" />
+  </ItemGroup>
+
+</Project>

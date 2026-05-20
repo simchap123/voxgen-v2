@@ -1,0 +1,17 @@
+<Application x:Class="VoxGen.Desktop.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+  <!--
+    Tray utility — no startup window. Lifetime owned by App.OnStartup / OnExit
+    (PRD §5.1, §8.1). Brand resources are merged here so the keys (PrimaryBrush,
+    BackgroundBrush, DmSansFont, control styles, etc.) resolve from any Window.
+  -->
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="/UI/Resources/Brand.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>

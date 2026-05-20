@@ -1,0 +1,215 @@
+<Window x:Class="VoxGen.Desktop.UI.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="VoxGen Settings"
+        Width="820" Height="560"
+        MinWidth="640" MinHeight="480"
+        Background="{DynamicResource BackgroundBrush}"
+        FontFamily="{DynamicResource DmSansFont}"
+        FontSize="{DynamicResource BodyFontSize}"
+        Foreground="{DynamicResource ForegroundBrush}"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="True"
+        Icon="/Assets/voxgen.ico"
+        PreviewKeyDown="OnWindowPreviewKeyDown">
+
+  <!--
+    Layout: 200px sidebar + content area. Mirrors v1's Sidebar.tsx structure
+    (CLAUDE.md UI/brand). Closing hides rather than disposes — the tray-resident
+    app must be able to reopen this window cheaply (PRD §5.1, §8.1).
+  -->
+
+  <Grid>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="200" />
+      <ColumnDefinition Width="*" />
+    </Grid.ColumnDefinitions>
+
+    <!-- ============== Sidebar ============== -->
+    <Border Grid.Column="0"
+            Background="{DynamicResource SidebarBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="0,0,1,0">
+      <StackPanel Margin="14,16,14,14">
+
+        <!-- Brand mark -->
+        <StackPanel Orientation="Horizontal" Margin="2,0,0,22">
+          <Border Width="28" Height="28"
+                  CornerRadius="6"
+                  Background="{DynamicResource PrimaryBrush}"
+                  VerticalAlignment="Center">
+            <TextBlock Text="V"
+                       Foreground="{DynamicResource PrimaryForegroundBrush}"
+                       FontWeight="Bold"
+                       FontSize="14"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center" />
+          </Border>
+          <TextBlock Text="VoxGen"
+                     FontWeight="Bold"
+                     FontSize="14"
+                     VerticalAlignment="Center"
+                     Margin="10,0,0,0" />
+        </StackPanel>
+
+        <!-- Section nav. RadioButtons in a single group give us mutually-exclusive
+             selection for free; the Click handlers swap visible content. -->
+        <RadioButton x:Name="NavGeneral"
+                     Style="{DynamicResource SidebarNavItemStyle}"
+                     GroupName="SettingsSection"
+                     IsChecked="True"
+                     Content="General"
+                     Click="OnNavGeneralClick" />
+        <RadioButton x:Name="NavAccount"
+                     Style="{DynamicResource SidebarNavItemStyle}"
+                     GroupName="SettingsSection"
+                     Content="Account"
+                     Click="OnNavAccountClick" />
+        <RadioButton x:Name="NavAbout"
+                     Style="{DynamicResource SidebarNavItemStyle}"
+                     GroupName="SettingsSection"
+                     Content="About"
+                     Click="OnNavAboutClick" />
+      </StackPanel>
+    </Border>
+
+    <!-- ============== Content ============== -->
+    <ScrollViewer Grid.Column="1"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+
+      <Grid Margin="36,32,36,32">
+        <!-- General -->
+        <StackPanel x:Name="GeneralPanel">
+          <TextBlock Text="General"
+                     Style="{DynamicResource TitleTextStyle}"
+                     Margin="0,0,0,4" />
+          <TextBlock Text="Core dictation behaviour."
+                     Style="{DynamicResource MutedTextStyle}"
+                     Margin="0,0,0,28" />
+
+          <!-- AI cleanup row. Bound to AppSettings.CleanupEnabled through
+               SettingsService.TryUpdate; UI reflects persisted state (PRD §10 rule 4). -->
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="AI cleanup"
+                         FontWeight="SemiBold"
+                         Margin="0,0,0,2" />
+              <TextBlock Text="Remove filler words, fix grammar and punctuation, format the text. When off, the raw transcript is used."
+                         Style="{DynamicResource MutedTextStyle}" />
+            </StackPanel>
+            <CheckBox x:Name="CleanupToggle"
+                      Grid.Column="1"
+                      VerticalAlignment="Center"
+                      Click="OnCleanupToggleClick" />
+          </Grid>
+
+          <!-- Microphone picker. Persists SelectedMicrophoneId (authoritative) + name (display)
+               via SettingsService; App re-initializes capture when the id changes. -->
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="Microphone" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="The device VoxGen records from."
+                         Style="{DynamicResource MutedTextStyle}" />
+            </StackPanel>
+            <ComboBox x:Name="MicrophoneCombo"
+                      Grid.Column="1"
+                      Width="240"
+                      VerticalAlignment="Center"
+                      DisplayMemberPath="Name"
+                      SelectionChanged="OnMicrophoneChanged" />
+          </Grid>
+
+          <!-- Hotkey recorder. Captures the next chord into HotkeyValue. -->
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="Hotkey" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="The key you hold (or tap) to dictate. Press Esc while recording to cancel."
+                         Style="{DynamicResource MutedTextStyle}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+              <Border Background="{DynamicResource AccentBrush}" CornerRadius="6" Padding="10,5" MinWidth="120">
+                <TextBlock x:Name="HotkeyDisplay"
+                           Text="RightAlt"
+                           HorizontalAlignment="Center"
+                           Foreground="{DynamicResource ForegroundBrush}" />
+              </Border>
+              <Button x:Name="HotkeyRecordButton"
+                      Content="Change"
+                      Margin="8,0,0,0"
+                      Padding="12,5"
+                      Click="OnHotkeyRecordClick" />
+            </StackPanel>
+          </Grid>
+
+          <!-- Activation mode. v1 scope: Hold + Toggle only (PRD §8.3). -->
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="Activation" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="Hold to record while pressed, or tap once to start and again to stop."
+                         Style="{DynamicResource MutedTextStyle}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+              <RadioButton x:Name="ModeHold" GroupName="HotkeyMode" Content="Hold"
+                           Margin="0,0,14,0" VerticalAlignment="Center" Click="OnHotkeyModeChanged" />
+              <RadioButton x:Name="ModeToggle" GroupName="HotkeyMode" Content="Toggle"
+                           VerticalAlignment="Center" Click="OnHotkeyModeChanged" />
+            </StackPanel>
+          </Grid>
+
+          <Border Background="{DynamicResource AccentBrush}"
+                  CornerRadius="6"
+                  Padding="14,12"
+                  Margin="0,12,0,0">
+            <TextBlock Style="{DynamicResource MutedTextStyle}"
+                       Foreground="{DynamicResource ForegroundBrush}"
+                       Text="Language, theme, history, start-on-boot and the overlay toggle land in a later slice — see PRD §8.9." />
+          </Border>
+        </StackPanel>
+
+        <!-- Account -->
+        <StackPanel x:Name="AccountPanel" Visibility="Collapsed">
+          <TextBlock Text="Account"
+                     Style="{DynamicResource TitleTextStyle}"
+                     Margin="0,0,0,4" />
+          <TextBlock Text="Sign-in, subscription, and trial status."
+                     Style="{DynamicResource MutedTextStyle}"
+                     Margin="0,0,0,28" />
+          <TextBlock Text="Account and trial UI lands here in a later slice — see PRD §8.12, §16."
+                     Style="{DynamicResource MutedTextStyle}" />
+        </StackPanel>
+
+        <!-- About -->
+        <StackPanel x:Name="AboutPanel" Visibility="Collapsed">
+          <TextBlock Text="About"
+                     Style="{DynamicResource TitleTextStyle}"
+                     Margin="0,0,0,4" />
+          <TextBlock Text="VoxGen — a tiny native dictation utility."
+                     Style="{DynamicResource MutedTextStyle}"
+                     Margin="0,0,0,28" />
+          <TextBlock x:Name="VersionText"
+                     Text="Version 2.0.0"
+                     Margin="0,0,0,8" />
+          <TextBlock Style="{DynamicResource MutedTextStyle}"
+                     Text="Press, talk, paste, done." />
+        </StackPanel>
+      </Grid>
+    </ScrollViewer>
+  </Grid>
+</Window>

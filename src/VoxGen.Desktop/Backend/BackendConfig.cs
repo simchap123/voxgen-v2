@@ -18,11 +18,13 @@ public static class BackendConfig
     /// Base URL for the VoxGen-managed backend (PRD §9). Endpoints live under this,
     /// e.g. <c>{base}/v1/transcribe</c>, <c>{base}/v1/license</c>.
     /// </summary>
-    // Left as a placeholder ON PURPOSE: with no backend URL, the desktop runs in no-login
-    // local-Whisper mode (download → run → talk, no account). The Vercel backend
-    // (https://voxgenflow.vercel.app, serving /api/v2/transcribe + /api/v2/license) is ready to
-    // turn on later by restoring this URL — once Supabase auth is set up for end users.
-    public const string VoxGenBackendBaseUrl = "REPLACE_AT_BUILD";
+    // CLOUD MODE (v2.0.6+): pointed at the live Vercel backend so the desktop runs managed
+    // transcription (Groq whisper-large-v3-turbo + optional cleanup) behind Supabase sign-in.
+    // The backend holds the Groq key (PRD §9.1) — the desktop never sees it. Verified live:
+    //   GET {base}/api/v2/license    → 401 "Access token required"  (rejects unauthenticated)
+    //   GET {base}/api/v2/transcribe → 405                          (POST-only route exists)
+    // To fall back to no-login local-Whisper mode, set this back to "REPLACE_AT_BUILD".
+    public const string VoxGenBackendBaseUrl = "https://voxgenflow.vercel.app";
 
     /// <summary>
     /// Supabase project URL (PRD §6.4). Used for auth REST calls

@@ -208,8 +208,48 @@
           <TextBlock Text="Sign-in, subscription, and trial status."
                      Style="{DynamicResource MutedTextStyle}"
                      Margin="0,0,0,28" />
-          <TextBlock Text="Account and trial UI lands here in a later slice — see PRD §8.12, §16."
-                     Style="{DynamicResource MutedTextStyle}" />
+
+          <!-- Sign-in status card. Reflects SessionManager state (PRD §8.2). When not signed in,
+               cloud transcription can't run, so this is the re-entry point if the startup prompt
+               was dismissed. -->
+          <Border Background="{DynamicResource AccentBrush}"
+                  CornerRadius="8"
+                  Padding="18,16"
+                  Margin="0,0,0,16">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <StackPanel Grid.Column="0" Margin="0,0,16,0" VerticalAlignment="Center">
+                <TextBlock x:Name="AccountStatusText"
+                           Text="Not signed in"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource ForegroundBrush}"
+                           Margin="0,0,0,2" />
+                <TextBlock x:Name="AccountStatusDetail"
+                           Text="Sign in to use VoxGen's managed transcription."
+                           Style="{DynamicResource MutedTextStyle}"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+              <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="SignInButton"
+                        Content="Sign in"
+                        Padding="16,7"
+                        Click="OnAccountSignInClick" />
+                <Button x:Name="SignOutButton"
+                        Content="Sign out"
+                        Padding="16,7"
+                        Visibility="Collapsed"
+                        Click="OnAccountSignOutClick" />
+              </StackPanel>
+            </Grid>
+          </Border>
+
+          <TextBlock x:Name="AccountUnavailableText"
+                     Text="Account sign-in isn't available in this build."
+                     Style="{DynamicResource MutedTextStyle}"
+                     Visibility="Collapsed" />
         </StackPanel>
 
         <!-- About -->
@@ -221,7 +261,7 @@
                      Style="{DynamicResource MutedTextStyle}"
                      Margin="0,0,0,28" />
           <TextBlock x:Name="VersionText"
-                     Text="Version 2.0.0"
+                     Text="Version 2.0.6"
                      Margin="0,0,0,8" />
           <TextBlock Style="{DynamicResource MutedTextStyle}"
                      Text="Press, talk, paste, done." />

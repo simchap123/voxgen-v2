@@ -66,7 +66,7 @@ public partial class App : Application
 
         Paths.EnsureCreated();
         Logger = new FileLogger(Paths.LogsDirectory);
-        Logger.Info("VoxGen starting", new() { ["version"] = "2.0.0" });
+        Logger.Info("VoxGen starting", new() { ["version"] = "2.0.6" });
 
         try
         {
@@ -103,7 +103,7 @@ public partial class App : Application
         _tray = new TrayIcon();
         _tray.ShowSettingsRequested += (_, _) =>
         {
-            _settingsWindow ??= new SettingsWindow(SettingsService, Logger, _deviceEnumerator!);
+            _settingsWindow ??= new SettingsWindow(SettingsService, Logger, _deviceEnumerator!, _sessionManager);
             if (!_settingsWindow.IsVisible)
             {
                 _settingsWindow.Show();

@@ -2,39 +2,41 @@
 
 A tiny native Windows dictation utility. **Hold a hotkey, talk, release — polished text is pasted into whatever app you were using.** Lives in the system tray, stays out of the way.
 
-### **[⬇ Download VoxGen for Windows](https://github.com/simchap123/voxgen-v2/releases/latest/download/VoxGen-win-x64.zip)**  ·  [all releases](https://github.com/simchap123/voxgen-v2/releases)
+### **[⬇ Download VoxGen for Windows](https://github.com/simchap123/voxgen-v2/releases/latest/download/VoxGen.exe)**  ·  [all releases](https://github.com/simchap123/voxgen-v2/releases)
 
 > ⚠️ **Heads-up:** the preview is **not code-signed yet**, so on Windows 11 with **Smart App Control on** it will be *blocked* (not just warned). It runs on machines with Smart App Control off or on Windows 10 (click "More info → Run anyway"). Code signing is the next milestone.
 
-> ### ⚠️ Preview release (`v2.0.0-preview`)
-> This build transcribes **100% on your device** using a local Whisper model — no account, no API key, nothing leaves your computer. It's an early preview while the managed cloud backend is being built, so:
-> - Accuracy is the small/fast `tiny.en` model — quick, but expect occasional mistakes (names, jargon).
-> - It's **not yet code-signed**, so Windows SmartScreen will warn on first run (see install steps).
+> ### ⚠️ Preview release (`v2.0.6-preview`)
+> This build uses VoxGen's **managed cloud transcription** (Groq Whisper `large-v3-turbo`, with optional AI cleanup) behind a **free account**. Audio is sent to VoxGen's backend for transcription only — no audio or transcripts are stored there. It's an early preview, so:
+> - You'll **create a free account** (email + password) on first run, then dictate.
+> - It's **not yet code-signed**, so Windows SmartScreen will warn (or Smart App Control will block) on first run — see install steps.
 >
-> See [the PRD](VoxGen-v2-PRD.md) §3.4 for what this preview is and isn't.
+> See [the PRD](VoxGen-v2-PRD.md) §9 for how the managed backend works.
 
 ---
 
 ## Install
 
-1. Download **`VoxGen-2.0.0-win-x64.zip`** from the [latest release](../../releases/latest).
-2. Extract it anywhere (e.g. `C:\Program Files\VoxGen` or your Desktop).
+1. Download **`VoxGen.exe`** from the [latest release](../../releases/latest).
+2. Save it anywhere (e.g. `C:\Program Files\VoxGen` or your Desktop). It's a single self-contained file — no installer, no extraction.
 3. Run **`VoxGen.exe`**.
    - Windows SmartScreen may show *"Windows protected your PC"* — click **More info → Run anyway**. (This goes away once the app is code-signed.)
-4. On first run it downloads a ~75 MB speech model once, then works fully offline.
+   - On Windows 11 with **Smart App Control on**, it's blocked with no "Run anyway." Turn Smart App Control off (Settings → Privacy & security → Windows Security → App & browser control → Smart App Control), or use a Windows 10 machine, until the app is signed.
+4. On first run, **create a free account** (email + password) in the sign-in window, then start dictating.
 
 No .NET install required — the runtime is bundled.
 
 ## Use it
 
 1. VoxGen runs in your **system tray** (bottom-right; check the `^` overflow).
-2. Click into any text field (email, chat, editor…).
-3. **Hold the hotkey, speak, release.** A small pill shows recording → transcribing, then your text is pasted where the cursor is.
-4. **Default hotkey: Right Alt** (hold-to-record). Change it — and switch to tap-to-toggle — in **tray → Open Settings → General**.
+2. **Sign in** when the window appears on first run (or later via **tray → Open Settings → Account**).
+3. Click into any text field (email, chat, editor…).
+4. **Hold the hotkey, speak, release.** A small pill shows recording → transcribing, then your text is pasted where the cursor is.
+5. **Default hotkey: Right Alt** (hold-to-record). Change it — and switch to tap-to-toggle — in **tray → Open Settings → General**.
 
 ## Privacy
 
-Everything stays on your machine. In this preview, audio is transcribed locally by Whisper and never uploaded. There's no telemetry. (The future managed release transits audio to VoxGen's backend for transcription only, storing no audio or transcripts — see the PRD.)
+Your transcripts stay on your machine. Audio is sent to VoxGen's backend **for transcription only** — no audio and no transcripts are stored there; the backend records usage metadata only. There's no telemetry in the desktop app. See the [PRD](VoxGen-v2-PRD.md) §9 for details.
 
 ## Build from source
 
@@ -51,11 +53,11 @@ dotnet publish src/VoxGen.Desktop -c Release -r win-x64 --self-contained true -o
 
 ## Tech
 
-C# / .NET 10 · WPF · Win32 P/Invoke (global hotkeys, foreground-window capture, clipboard, synthetic paste) · NAudio (capture) · Whisper.net (preview-only local STT). Deliberately tiny dependency surface — see the PRD's dependency policy (§6.2).
+C# / .NET 10 · WPF · Win32 P/Invoke (global hotkeys, foreground-window capture, clipboard, synthetic paste) · NAudio (capture) · `HttpClient` to a VoxGen-managed backend (Groq Whisper `large-v3-turbo`) with Supabase auth. Deliberately tiny dependency surface — see the PRD's dependency policy (§6.2).
 
 ## Status
 
-Preview. Working: hotkey → record → local transcribe → paste, recording overlay, tray + settings (mic picker, hotkey recorder), reliable settings persistence. Not yet: managed cloud transcription + accounts, code signing, auto-update, local history UI, live/streaming dictation. Roadmap and full scope live in [`VoxGen-v2-PRD.md`](VoxGen-v2-PRD.md).
+Preview. Working: free account sign-in, hotkey → record → managed cloud transcribe → paste, recording overlay, tray + settings (mic picker, hotkey recorder, account sign-in/out), reliable settings persistence. Not yet: code signing, auto-update, local history UI, live/streaming dictation, subscription/trial UI. Roadmap and full scope live in [`VoxGen-v2-PRD.md`](VoxGen-v2-PRD.md).
 
 ## License
 

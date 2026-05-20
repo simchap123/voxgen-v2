@@ -1,10 +1,14 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using VoxGen.Desktop.Audio;
+using VoxGen.Desktop.Auth;
 using VoxGen.Desktop.Hotkeys;
 using VoxGen.Desktop.Logging;
 using VoxGen.Desktop.Settings;
@@ -26,27 +30,40 @@ public partial class SettingsWindow : Window
     private readonly SettingsService _settings;
     private readonly ILogger _logger;
     private readonly IAudioDeviceEnumerator _deviceEnumerator;
+    private readonly SessionManager? _sessions;
 
     private bool _suppress;
     private bool _recordingHotkey;
+    private bool _accountBusy;
 
     /// <summary>Sentinel device representing "let Windows pick" (persisted as a null microphone id).</summary>
     private static readonly AudioDevice DefaultDevice = new() { Id = string.Empty, Name = "System default" };
 
-    public SettingsWindow(SettingsService settings, ILogger logger, IAudioDeviceEnumerator deviceEnumerator)
+    /// <param name="sessions">
+    /// The signed-in session, or <c>null</c> when Supabase auth isn't configured (no-login local build).
+    /// When null, the Account tab shows a "not available" note instead of sign-in controls.
+    /// </param>
+    public SettingsWindow(
+        SettingsService settings,
+        ILogger logger,
+        IAudioDeviceEnumerator deviceEnumerator,
+        SessionManager? sessions = null)
     {
         _settings = settings;
         _logger = logger;
         _deviceEnumerator = deviceEnumerator;
+        _sessions = sessions;
 
         InitializeComponent();
 
         PopulateMicrophones();
 
         _settings.Changed += OnSettingsChanged;
+        if (_sessions is not null) _sessions.Changed += OnSessionChanged;
         Closing += OnClosing;
 
         ApplySettingsToUi(_settings.Current);
+        RefreshAccountUi();
     }
 
     // ============ population ============
@@ -95,6 +112,92 @@ public partial class SettingsWindow : Window
             ? DefaultDevice
             : items.FirstOrDefault(d => d.Id == id) ?? DefaultDevice;
         MicrophoneCombo.SelectedItem = match;
+    }
+
+    // ============ account / sign-in ============
+
+    private void OnSessionChanged(object? sender, EventArgs e)
+    {
+        // SessionManager.Changed can fire off the UI thread (sign-out completes on a pool thread).
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(RefreshAccountUi);
+            return;
+        }
+        RefreshAccountUi();
+    }
+
+    private void RefreshAccountUi()
+    {
+        // No auth configured (local-only build): hide the controls, show the note.
+        if (_sessions is null)
+        {
+            AccountStatusText.Text = "Local mode";
+            AccountStatusDetail.Text = "This build transcribes on your device — no account needed.";
+            SignInButton.Visibility = Visibility.Collapsed;
+            SignOutButton.Visibility = Visibility.Collapsed;
+            AccountUnavailableText.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        if (_sessions.IsSignedIn)
+        {
+            AccountStatusText.Text = string.IsNullOrEmpty(_sessions.Email)
+                ? "Signed in"
+                : $"Signed in as {_sessions.Email}";
+            AccountStatusDetail.Text = "VoxGen is using managed cloud transcription.";
+            SignInButton.Visibility = Visibility.Collapsed;
+            SignOutButton.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            AccountStatusText.Text = "Not signed in";
+            AccountStatusDetail.Text = "Sign in to use VoxGen's managed transcription.";
+            SignInButton.Visibility = Visibility.Visible;
+            SignOutButton.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void OnAccountSignInClick(object sender, RoutedEventArgs e)
+    {
+        if (_sessions is null || _accountBusy) return;
+        try
+        {
+            var window = new SignInWindow(_sessions, _logger) { Owner = this };
+            window.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Failed to open sign-in window", new() { ["error"] = ex.Message });
+        }
+        RefreshAccountUi(); // SignInWindow also fires Changed, but refresh defensively.
+    }
+
+    private void OnAccountSignOutClick(object sender, RoutedEventArgs e)
+    {
+        if (_sessions is null || _accountBusy) return;
+        _ = SignOutAsync();
+    }
+
+    private async Task SignOutAsync()
+    {
+        _accountBusy = true;
+        SignOutButton.IsEnabled = false;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await _sessions!.SignOutAsync(cts.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Sign-out failed", new() { ["error"] = ex.Message });
+        }
+        finally
+        {
+            _accountBusy = false;
+            SignOutButton.IsEnabled = true;
+            RefreshAccountUi();
+        }
     }
 
     // ============ control handlers ============
@@ -257,6 +360,7 @@ public partial class SettingsWindow : Window
     {
         _forceClosing = true;
         _settings.Changed -= OnSettingsChanged;
+        if (_sessions is not null) _sessions.Changed -= OnSessionChanged;
         Close();
     }
 }

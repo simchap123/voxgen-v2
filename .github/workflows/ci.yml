@@ -1,0 +1,23 @@
+name: ci
+
+# Build + test on every push/PR to main. Runs on a clean Windows runner (no Smart App Control),
+# so it can actually execute the unsigned test assembly — which the dev's SAC-enabled machine cannot.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build
+        run: dotnet build VoxGen.sln -c Debug --nologo
+      - name: Test
+        run: dotnet test VoxGen.sln -c Debug --no-build --nologo

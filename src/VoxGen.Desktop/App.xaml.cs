@@ -42,7 +42,8 @@ public partial class App : Application
     private LicenseCheckCache? _licenseCache;
     private VoxGenBackendClient? _backendClient;
     private VoxGenManagedProvider? _transcriber;
-    private SupabaseSession? _session;
+    private SupabaseAuth? _supabaseAuth;
+    private SessionManager? _sessionManager;
     private bool _isPaused;
 
     // Dictation pipeline (this slice).
@@ -85,10 +86,12 @@ public partial class App : Application
         }
 
         WireTray();
+        WireAuth();
         WireBackend();
         WireDictation();
         WireHotkeys();
         WireSettingsReactions();
+        MaybePromptSignIn();
 
         base.OnStartup(e);
     }
@@ -116,38 +119,61 @@ public partial class App : Application
         _tray.QuitRequested += (_, _) => Shutdown();
     }
 
-    // -------- backend / auth / transcription --------
+    // -------- auth (Supabase) --------
+
+    private void WireAuth()
+    {
+        // Supabase is configured (URL + publishable key), so build the auth + session manager even
+        // before the transcription backend exists — sign-in is needed the moment the backend goes live.
+        if (!SupabaseConfigured())
+        {
+            Logger.Warning("Supabase not configured — sign-in unavailable");
+            return;
+        }
+        try
+        {
+            _supabaseHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            _supabaseAuth = new SupabaseAuth(_supabaseHttp, BackendConfig.SupabaseUrl, BackendConfig.SupabaseAnonKey);
+            _sessionStore = new SessionTokenStore(Paths.SessionTokenFile, Logger);
+            _sessionManager = new SessionManager(_supabaseAuth, _sessionStore, Logger);
+            Logger.Info("Auth ready", new() { ["signedIn"] = _sessionManager.IsSignedIn });
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Auth init failed", new() { ["error"] = ex.Message });
+        }
+    }
+
+    // -------- backend / transcription --------
 
     private void WireBackend()
     {
-        // BackendConfig ships with REPLACE_AT_BUILD placeholders. If the build pipeline hasn't
-        // substituted them, skip backend init rather than crashing — the app still runs (no audio
-        // path wired yet anyway) and the user can see settings.
+        // BackendConfig ships with REPLACE_AT_BUILD placeholders. Until the VoxGen backend URL is set
+        // (after deploy), skip managed init — the app keeps using the local Whisper preview provider.
         if (!BackendConfigured())
         {
             Logger.Warning("Backend not configured — skipping backend init", new()
             {
                 ["voxgenBaseUrl"] = BackendConfig.VoxGenBackendBaseUrl,
-                ["supabaseUrl"] = BackendConfig.SupabaseUrl,
             });
+            return;
+        }
+
+        if (_sessionManager is null)
+        {
+            Logger.Error("Backend configured but auth is not — cannot wire managed transcription");
             return;
         }
 
         try
         {
             _backendHttp = new HttpClient { BaseAddress = new Uri(BackendConfig.VoxGenBackendBaseUrl) };
-            _supabaseHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-
-            _sessionStore = new SessionTokenStore(Paths.SessionTokenFile, Logger);
-            _sessionStore.TryLoad(out _session);
-
             _licenseCache = new LicenseCheckCache(Paths.LicenseCacheFile, Logger);
             _backendClient = new VoxGenBackendClient(_backendHttp);
 
-            // Stub token getter — the real refresh/relogin manager lands in a later slice (see
-            // Agent C's flagged ambiguity #1). For now: hand back the loaded token, or empty.
-            Func<CancellationToken, Task<string>> getToken = _ =>
-                Task.FromResult(_session?.AccessToken ?? string.Empty);
+            // Real token source: the session manager refreshes proactively + on demand.
+            var sessions = _sessionManager;
+            Func<CancellationToken, Task<string>> getToken = ct => sessions.GetAccessTokenAsync(ct);
 
             _transcriber = new VoxGenManagedProvider(
                 _backendClient,
@@ -160,8 +186,7 @@ public partial class App : Application
                 });
 
             // Background license validation — keeps the offline cache fresh.
-            // Failures inside the grace window are tolerated; outside, the overlay/UI surfaces.
-            if (_session is not null)
+            if (_sessionManager.IsSignedIn)
             {
                 _ = Task.Run(BackgroundValidateLicenseAsync);
             }
@@ -172,18 +197,39 @@ public partial class App : Application
         }
     }
 
+    private static bool SupabaseConfigured() =>
+        !string.IsNullOrWhiteSpace(BackendConfig.SupabaseUrl)
+        && BackendConfig.SupabaseUrl != "REPLACE_AT_BUILD"
+        && !string.IsNullOrWhiteSpace(BackendConfig.SupabaseAnonKey)
+        && BackendConfig.SupabaseAnonKey != "REPLACE_AT_BUILD";
+
     private static bool BackendConfigured() =>
         !string.IsNullOrWhiteSpace(BackendConfig.VoxGenBackendBaseUrl)
         && BackendConfig.VoxGenBackendBaseUrl != "REPLACE_AT_BUILD"
-        && !string.IsNullOrWhiteSpace(BackendConfig.SupabaseUrl)
-        && BackendConfig.SupabaseUrl != "REPLACE_AT_BUILD";
+        && SupabaseConfigured();
+
+    /// <summary>When the managed backend is live but no one's signed in, prompt sign-in (PRD §8.2).</summary>
+    private void MaybePromptSignIn()
+    {
+        if (!BackendConfigured() || _sessionManager is null || _sessionManager.IsSignedIn) return;
+        try
+        {
+            var window = new SignInWindow(_sessionManager, Logger);
+            window.Show();
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to show sign-in window", new() { ["error"] = ex.Message });
+        }
+    }
 
     private async Task BackgroundValidateLicenseAsync()
     {
-        if (_backendClient is null || _licenseCache is null || _session is null) return;
+        if (_backendClient is null || _licenseCache is null || _sessionManager is null) return;
         try
         {
-            var status = await _backendClient.ValidateLicenseAsync(_session.AccessToken, CancellationToken.None)
+            var token = await _sessionManager.GetAccessTokenAsync(CancellationToken.None).ConfigureAwait(false);
+            var status = await _backendClient.ValidateLicenseAsync(token, CancellationToken.None)
                                              .ConfigureAwait(false);
             _licenseCache.Save(status);
             Logger.Info("License validated", new() { ["state"] = status.State.ToString() });

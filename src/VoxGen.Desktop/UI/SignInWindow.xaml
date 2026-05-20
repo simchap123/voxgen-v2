@@ -1,0 +1,44 @@
+<Window x:Class="VoxGen.Desktop.UI.SignInWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Sign in to VoxGen"
+        Width="380" SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource BackgroundBrush}"
+        FontFamily="{DynamicResource DmSansFont}"
+        FontSize="{DynamicResource BodyFontSize}"
+        Foreground="{DynamicResource ForegroundBrush}"
+        Icon="/Assets/voxgen.ico"
+        ShowInTaskbar="True">
+
+  <StackPanel Margin="28,26,28,24">
+
+    <!-- Brand mark -->
+    <StackPanel Orientation="Horizontal" Margin="0,0,0,18">
+      <Border Width="30" Height="30" CornerRadius="7" Background="{DynamicResource PrimaryBrush}" VerticalAlignment="Center">
+        <TextBlock Text="V" Foreground="{DynamicResource PrimaryForegroundBrush}" FontWeight="Bold" FontSize="15"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Border>
+      <TextBlock Text="VoxGen" FontWeight="Bold" FontSize="16" VerticalAlignment="Center" Margin="10,0,0,0" />
+    </StackPanel>
+
+    <TextBlock Text="Sign in" Style="{DynamicResource TitleTextStyle}" Margin="0,0,0,2" />
+    <TextBlock Text="Sign in or create an account to start dictating. No credit card — 30-day trial."
+               Style="{DynamicResource MutedTextStyle}" Margin="0,0,0,18" TextWrapping="Wrap" />
+
+    <TextBlock Text="Email" FontWeight="SemiBold" Margin="0,0,0,4" />
+    <TextBox x:Name="EmailBox" Padding="8,6" Margin="0,0,0,12" />
+
+    <TextBlock Text="Password" FontWeight="SemiBold" Margin="0,0,0,4" />
+    <PasswordBox x:Name="PasswordBox" Padding="8,6" Margin="0,0,0,8" />
+
+    <TextBlock x:Name="StatusText" Foreground="{DynamicResource DestructiveBrush}"
+               TextWrapping="Wrap" Margin="0,0,0,12" Visibility="Collapsed" />
+
+    <Button x:Name="SignInButton" Content="Sign in" Height="36" Margin="0,0,0,8"
+            Click="OnSignInClick" />
+    <Button x:Name="SignUpButton" Content="Create account" Height="34"
+            Click="OnSignUpClick" />
+  </StackPanel>
+</Window>

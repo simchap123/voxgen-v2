@@ -40,7 +40,10 @@ public enum DictationState
 /// </summary>
 public sealed class DictationController
 {
-    private const int LiveIntervalMs = 1200;
+    // How often live mode re-transcribes the audio-so-far and commits newly-stable words.
+    // Shorter = words appear more often (feels more live) at the cost of more CPU; tiny.en on
+    // short clips is fast enough that ~600 ms self-throttles cleanly on longer utterances.
+    private const int LiveIntervalMs = 600;
 
     private readonly IAudioCapture _capture;
     private readonly ITranscriptionProvider _provider;

@@ -2,6 +2,10 @@
 
 A tiny native Windows dictation utility. **Hold a hotkey, talk, release — polished text is pasted into whatever app you were using.** Lives in the system tray, stays out of the way.
 
+### **[⬇ Download VoxGen for Windows](https://github.com/simchap123/voxgen-v2/releases/latest/download/VoxGen-win-x64.zip)**  ·  [all releases](https://github.com/simchap123/voxgen-v2/releases)
+
+> ⚠️ **Heads-up:** the preview is **not code-signed yet**, so on Windows 11 with **Smart App Control on** it will be *blocked* (not just warned). It runs on machines with Smart App Control off or on Windows 10 (click "More info → Run anyway"). Code signing is the next milestone.
+
 > ### ⚠️ Preview release (`v2.0.0-preview`)
 > This build transcribes **100% on your device** using a local Whisper model — no account, no API key, nothing leaves your computer. It's an early preview while the managed cloud backend is being built, so:
 > - Accuracy is the small/fast `tiny.en` model — quick, but expect occasional mistakes (names, jargon).

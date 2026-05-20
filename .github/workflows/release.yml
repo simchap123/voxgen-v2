@@ -49,13 +49,15 @@ jobs:
       #     wait-for-completion: true
       # ---------------------------------------------------------------------------
 
+      # Stable filename (no version) so the permanent latest-download link always resolves:
+      #   https://github.com/<owner>/voxgen-v2/releases/latest/download/VoxGen-win-x64.zip
       - name: Zip
         shell: pwsh
-        run: Compress-Archive -Path dist/VoxGen-win-x64/* -DestinationPath "VoxGen-${{ github.ref_name }}-win-x64.zip"
+        run: Compress-Archive -Path dist/VoxGen-win-x64/* -DestinationPath "VoxGen-win-x64.zip"
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: VoxGen-*-win-x64.zip
+          files: VoxGen-win-x64.zip
           prerelease: true
           generate_release_notes: true

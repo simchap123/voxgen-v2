@@ -25,7 +25,7 @@ public partial class App : Application
     private const string SingletonMutexName = @"Global\VoxGen-Desktop-Singleton-{D8F2E5F4-8A4F-4B1B-A7D6-9B5E2C3D1F4A}";
 
     /// <summary>Single source for the display version (logs + uninstall registry entry).</summary>
-    private const string AppVersion = "2.0.10";
+    private const string AppVersion = "2.0.11";
 
     private Mutex? _singletonMutex;
     private bool _ownsMutex;
@@ -120,7 +120,7 @@ public partial class App : Application
         _tray = new TrayIcon();
         _tray.ShowSettingsRequested += (_, _) =>
         {
-            _settingsWindow ??= new SettingsWindow(SettingsService, Logger, _deviceEnumerator!, _sessionManager);
+            _settingsWindow ??= new SettingsWindow(SettingsService, Logger, _deviceEnumerator!, _sessionManager, GetLicenseStatusAsync);
             if (!_settingsWindow.IsVisible)
             {
                 _settingsWindow.Show();
@@ -238,6 +238,30 @@ public partial class App : Application
         {
             Logger.Error("Failed to show sign-in window", new() { ["error"] = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Fetches the user's current license/trial status for the Settings → Account panel: a live
+    /// backend check when signed in (refreshing the offline cache), falling back to the cached
+    /// status if the backend is unreachable. Returns null only when nothing is known.
+    /// </summary>
+    private async Task<LicenseStatus?> GetLicenseStatusAsync(CancellationToken ct)
+    {
+        if (_backendClient is not null && _sessionManager is { IsSignedIn: true })
+        {
+            try
+            {
+                var token = await _sessionManager.GetAccessTokenAsync(ct).ConfigureAwait(false);
+                var status = await _backendClient.ValidateLicenseAsync(token, ct).ConfigureAwait(false);
+                try { _licenseCache?.Save(status); } catch { /* cache is best-effort */ }
+                return status;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning("License fetch failed; falling back to cache", new() { ["error"] = ex.Message });
+            }
+        }
+        return _licenseCache?.Load();
     }
 
     private async Task BackgroundValidateLicenseAsync()

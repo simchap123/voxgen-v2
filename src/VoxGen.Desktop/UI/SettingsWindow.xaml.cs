@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,7 +10,9 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using VoxGen.Desktop.Audio;
 using VoxGen.Desktop.Auth;
+using VoxGen.Desktop.Backend;
 using VoxGen.Desktop.Hotkeys;
+using VoxGen.Desktop.License;
 using VoxGen.Desktop.Logging;
 using VoxGen.Desktop.Settings;
 
@@ -31,6 +34,7 @@ public partial class SettingsWindow : Window
     private readonly ILogger _logger;
     private readonly IAudioDeviceEnumerator _deviceEnumerator;
     private readonly SessionManager? _sessions;
+    private readonly Func<CancellationToken, Task<LicenseStatus?>>? _getLicenseStatus;
 
     private bool _suppress;
     private bool _recordingHotkey;
@@ -47,12 +51,14 @@ public partial class SettingsWindow : Window
         SettingsService settings,
         ILogger logger,
         IAudioDeviceEnumerator deviceEnumerator,
-        SessionManager? sessions = null)
+        SessionManager? sessions = null,
+        Func<CancellationToken, Task<LicenseStatus?>>? getLicenseStatus = null)
     {
         _settings = settings;
         _logger = logger;
         _deviceEnumerator = deviceEnumerator;
         _sessions = sessions;
+        _getLicenseStatus = getLicenseStatus;
 
         InitializeComponent();
 
@@ -136,6 +142,7 @@ public partial class SettingsWindow : Window
             AccountStatusDetail.Text = "This build transcribes on your device — no account needed.";
             SignInButton.Visibility = Visibility.Collapsed;
             SignOutButton.Visibility = Visibility.Collapsed;
+            PlanCard.Visibility = Visibility.Collapsed;
             AccountUnavailableText.Visibility = Visibility.Collapsed;
             return;
         }
@@ -148,6 +155,14 @@ public partial class SettingsWindow : Window
             AccountStatusDetail.Text = "VoxGen is using managed cloud transcription.";
             SignInButton.Visibility = Visibility.Collapsed;
             SignOutButton.Visibility = Visibility.Visible;
+
+            // Show the plan card and fetch the real trial/subscription status.
+            PlanCard.Visibility = Visibility.Visible;
+            PlanText.Text = "Plan";
+            PlanDetail.Text = "Checking…";
+            UpgradeButton.Visibility = Visibility.Visible;
+            ManageBillingButton.Visibility = Visibility.Collapsed;
+            _ = LoadLicenseAsync();
         }
         else
         {
@@ -155,6 +170,100 @@ public partial class SettingsWindow : Window
             AccountStatusDetail.Text = "Sign in to use VoxGen's managed transcription.";
             SignInButton.Visibility = Visibility.Visible;
             SignOutButton.Visibility = Visibility.Collapsed;
+            PlanCard.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private async Task LoadLicenseAsync()
+    {
+        if (_getLicenseStatus is null)
+        {
+            PlanCard.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        LicenseStatus? status = null;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            status = await _getLicenseStatus(cts.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning("License status fetch failed", new() { ["error"] = ex.Message });
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => ApplyLicenseToUi(status));
+            return;
+        }
+        ApplyLicenseToUi(status);
+    }
+
+    private void ApplyLicenseToUi(LicenseStatus? status)
+    {
+        // Guard: the user may have signed out while the fetch was in flight.
+        if (_sessions is null || !_sessions.IsSignedIn)
+        {
+            PlanCard.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        PlanCard.Visibility = Visibility.Visible;
+
+        if (status is null)
+        {
+            PlanText.Text = "Plan";
+            PlanDetail.Text = "Couldn't check your plan right now — you can still upgrade.";
+            UpgradeButton.Visibility = Visibility.Visible;
+            ManageBillingButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        switch (status.State)
+        {
+            case LicenseState.Trial:
+                PlanText.Text = "Free Trial";
+                PlanDetail.Text = status.TrialDaysLeft > 0
+                    ? $"{status.TrialDaysLeft} day{(status.TrialDaysLeft == 1 ? "" : "s")} left — upgrade anytime."
+                    : "Trial ending today — upgrade to keep dictating.";
+                UpgradeButton.Visibility = Visibility.Visible;
+                ManageBillingButton.Visibility = Visibility.Collapsed;
+                break;
+
+            case LicenseState.Active:
+                PlanText.Text = string.IsNullOrWhiteSpace(status.PlanName) ? "Active" : status.PlanName;
+                PlanDetail.Text = "Your subscription is active.";
+                UpgradeButton.Visibility = Visibility.Collapsed;
+                ManageBillingButton.Visibility = Visibility.Visible;
+                break;
+
+            default: // Expired / NotActivated
+                PlanText.Text = status.State == LicenseState.Expired ? "Plan expired" : "No active plan";
+                PlanDetail.Text = "Upgrade to keep using VoxGen's cloud transcription.";
+                UpgradeButton.Visibility = Visibility.Visible;
+                ManageBillingButton.Visibility = Visibility.Visible;
+                break;
+        }
+    }
+
+    private void OnUpgradeClick(object sender, RoutedEventArgs e) => OpenWebsite("/#pricing");
+
+    private void OnManageBillingClick(object sender, RoutedEventArgs e) => OpenWebsite("/account.html");
+
+    /// <summary>Open a page on the VoxGen website (shares the backend domain) in the default browser.</summary>
+    private void OpenWebsite(string path)
+    {
+        try
+        {
+            var baseUrl = BackendConfig.VoxGenBackendBaseUrl?.TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl) || baseUrl == "REPLACE_AT_BUILD") return;
+            Process.Start(new ProcessStartInfo { FileName = baseUrl + path, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Failed to open website", new() { ["error"] = ex.Message, ["path"] = path });
         }
     }
 

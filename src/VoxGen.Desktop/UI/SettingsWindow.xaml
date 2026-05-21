@@ -246,6 +246,40 @@
             </Grid>
           </Border>
 
+          <!-- Plan / trial status + upgrade routing. Shown when signed in. -->
+          <Border x:Name="PlanCard"
+                  Background="{DynamicResource AccentBrush}"
+                  CornerRadius="8"
+                  Padding="18,16"
+                  Margin="0,0,0,16"
+                  Visibility="Collapsed">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <StackPanel Grid.Column="0" Margin="0,0,16,0" VerticalAlignment="Center">
+                <TextBlock x:Name="PlanText"
+                           Text="Plan"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource ForegroundBrush}"
+                           Margin="0,0,0,2" />
+                <TextBlock x:Name="PlanDetail"
+                           Text="Checking…"
+                           Style="{DynamicResource MutedTextStyle}"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+              <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="UpgradeButton" Content="Upgrade"
+                        Style="{DynamicResource PrimaryButtonStyle}"
+                        Padding="16,7" Click="OnUpgradeClick" />
+                <Button x:Name="ManageBillingButton" Content="Manage billing"
+                        Padding="14,7" Margin="8,0,0,0"
+                        Visibility="Collapsed" Click="OnManageBillingClick" />
+              </StackPanel>
+            </Grid>
+          </Border>
+
           <TextBlock x:Name="AccountUnavailableText"
                      Text="Account sign-in isn't available in this build."
                      Style="{DynamicResource MutedTextStyle}"
@@ -261,7 +295,7 @@
                      Style="{DynamicResource MutedTextStyle}"
                      Margin="0,0,0,28" />
           <TextBlock x:Name="VersionText"
-                     Text="Version 2.0.10"
+                     Text="Version 2.0.11"
                      Margin="0,0,0,8" />
           <TextBlock Style="{DynamicResource MutedTextStyle}"
                      Text="Press, talk, paste, done." />

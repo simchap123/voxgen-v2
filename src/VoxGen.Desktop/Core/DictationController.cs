@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using VoxGen.Desktop.Audio;
+using VoxGen.Desktop.Backend;
 using VoxGen.Desktop.Clipboard;
 using VoxGen.Desktop.Hotkeys;
 using VoxGen.Desktop.Logging;
@@ -190,7 +191,9 @@ public sealed class DictationController
                 ["error"] = ex.Message,
                 ["savedTo"] = savedPath ?? "(save failed)",
             });
-            _overlay.ShowError("Couldn't transcribe — recording saved");
+            // Surface WHY it failed so the user can act (sign in / upgrade / wait), instead of a
+            // single opaque message for every cause.
+            _overlay.ShowError(TranscriptionErrorMessage(ex));
             _liveActive = false;
             State = DictationState.Idle;
             return;
@@ -325,4 +328,20 @@ public sealed class DictationController
             return null;
         }
     }
+
+    /// <summary>
+    /// Map a transcription failure to a short, actionable overlay message. The recording is always
+    /// preserved regardless (§5.3); this just tells the user what to do next.
+    /// </summary>
+    private static string TranscriptionErrorMessage(Exception ex) => ex switch
+    {
+        TrialExpiredException => "Trial ended — upgrade in Settings",
+        QuotaExceededException => "Usage limit reached — try later",
+        RateLimitedException => "Too many requests — wait a moment",
+        UnauthenticatedException => "Sign in to dictate (Settings)",
+        BackendUnavailableException => "Can't reach VoxGen — recording saved",
+        InvalidOperationException when ex.Message.Contains("signed in", StringComparison.OrdinalIgnoreCase)
+            => "Sign in to dictate (Settings)",
+        _ => "Couldn't transcribe — recording saved",
+    };
 }

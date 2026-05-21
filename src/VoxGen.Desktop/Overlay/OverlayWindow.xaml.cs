@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Shapes;
 using System.Windows.Threading;
+using VoxGen.Desktop.Audio;
 
 namespace VoxGen.Desktop.Overlay;
 
@@ -39,9 +42,19 @@ public partial class OverlayWindow : Window, IRecordingOverlay
     private OverlayState _state = OverlayState.Hidden;
     private bool _showingError;
 
+    // Live waveform + elapsed timer (recording state).
+    private const int BarCount = 18;
+    private readonly List<Rectangle> _bars = new(BarCount);
+    private DispatcherTimer? _waveTimer;
+    private DispatcherTimer? _elapsedTimer;
+    private DateTime _recordingStartUtc;
+    private double _wavePhase;
+
     public OverlayWindow()
     {
         InitializeComponent();
+
+        BuildWaveformBars();
 
         _errorTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher)
         {
@@ -85,6 +98,8 @@ public partial class OverlayWindow : Window, IRecordingOverlay
             case OverlayState.Hidden:
                 StopPulse();
                 StopEllipsisAnimation();
+                StopWaveform();
+                StopElapsedTimer();
                 Visibility = Visibility.Hidden;
                 return;
 
@@ -140,12 +155,25 @@ public partial class OverlayWindow : Window, IRecordingOverlay
         StatusDot.Opacity = 1.0;
         PillRoot.Background = BrushFor("BackgroundBrush", Color.FromRgb(0xF8, 0xF4, 0xEC));
         PillRoot.BorderBrush = BrushFor("BorderBrush", Color.FromRgb(0xE6, 0xE2, 0xD8));
-        StatusLabel.Foreground = BrushFor("ForegroundBrush", Color.FromRgb(0x21, 0x26, 0x2E));
-        StatusLabel.Text = "Recording…";
+
+        // Recording look: dot + elapsed timer + live waveform, no status word (mockup style).
+        StatusLabel.Visibility = Visibility.Collapsed;
+        TimerText.Visibility = Visibility.Visible;
+        TimerText.Text = "0:00";
+        Waveform.Visibility = Visibility.Visible;
+
+        _recordingStartUtc = DateTime.UtcNow;
+        StartElapsedTimer();
+        StartWaveform();
     }
 
     private void ApplyTranscribingVisuals()
     {
+        StopWaveform();
+        StopElapsedTimer();
+        TimerText.Visibility = Visibility.Collapsed;
+        Waveform.Visibility = Visibility.Collapsed;
+
         // A small sage dot keeps the pill balanced once recording's red dot is gone.
         StatusDot.Visibility = Visibility.Visible;
         StatusDot.Fill = BrushFor("PrimaryBrush", Color.FromRgb(0x4C, 0x8C, 0x6B));
@@ -153,12 +181,21 @@ public partial class OverlayWindow : Window, IRecordingOverlay
         ResetDotScale();
         PillRoot.Background = BrushFor("BackgroundBrush", Color.FromRgb(0xF8, 0xF4, 0xEC));
         PillRoot.BorderBrush = BrushFor("BorderBrush", Color.FromRgb(0xE6, 0xE2, 0xD8));
+        StatusLabel.Visibility = Visibility.Visible;
         StatusLabel.Foreground = BrushFor("ForegroundBrush", Color.FromRgb(0x21, 0x26, 0x2E));
         StatusLabel.Text = "Transcribing";
+
+        // The "in progress" cue (PRD §8.10 polish): play once on entry to Transcribing.
+        SoundCue.PlayTranscribing();
     }
 
     private void ApplyErrorVisuals(string message)
     {
+        StopWaveform();
+        StopElapsedTimer();
+        TimerText.Visibility = Visibility.Collapsed;
+        Waveform.Visibility = Visibility.Collapsed;
+
         // Red pill — destructive background, white text. Opens settings on click is a controller
         // concern (the idle/active overlay states there); here we just surface the message briefly.
         StatusDot.Visibility = Visibility.Collapsed;
@@ -166,8 +203,84 @@ public partial class OverlayWindow : Window, IRecordingOverlay
         ResetDotScale();
         PillRoot.Background = BrushFor("DestructiveBrush", Color.FromRgb(0xDC, 0x2C, 0x2C));
         PillRoot.BorderBrush = BrushFor("DestructiveBrush", Color.FromRgb(0xDC, 0x2C, 0x2C));
+        StatusLabel.Visibility = Visibility.Visible;
         StatusLabel.Foreground = BrushFor("PrimaryForegroundBrush", Colors.White);
         StatusLabel.Text = message;
+    }
+
+    // ============ Live waveform + elapsed timer ============
+
+    private void BuildWaveformBars()
+    {
+        var bar = BrushFor("PrimaryBrush", Color.FromRgb(0x4C, 0x8C, 0x6B));
+        for (int i = 0; i < BarCount; i++)
+        {
+            var rect = new Rectangle
+            {
+                Width = 3,
+                Height = 4,
+                RadiusX = 1.5,
+                RadiusY = 1.5,
+                Margin = new Thickness(1.5, 0, 1.5, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Fill = bar,
+            };
+            _bars.Add(rect);
+            Waveform.Children.Add(rect);
+        }
+    }
+
+    private void StartWaveform()
+    {
+        _waveTimer ??= new DispatcherTimer(DispatcherPriority.Render, Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(55),
+        };
+        _waveTimer.Tick -= OnWaveTick;
+        _waveTimer.Tick += OnWaveTick;
+        _waveTimer.Start();
+    }
+
+    private void StopWaveform()
+    {
+        _waveTimer?.Stop();
+        // Settle the bars flat so a re-show doesn't flash a stale shape.
+        foreach (var b in _bars) b.Height = 4;
+    }
+
+    private void OnWaveTick(object? sender, EventArgs e)
+    {
+        // Two travelling sine components give an organic, lively shape (not a flat scroll).
+        _wavePhase += 0.45;
+        const double min = 4, max = 20;
+        for (int i = 0; i < _bars.Count; i++)
+        {
+            double wave = 0.5 * (1 + Math.Sin(_wavePhase + i * 0.55))
+                        * 0.7
+                        + 0.3 * (0.5 * (1 + Math.Sin(_wavePhase * 1.7 + i * 0.9)));
+            _bars[i].Height = min + (max - min) * Math.Clamp(wave, 0, 1);
+        }
+    }
+
+    private void StartElapsedTimer()
+    {
+        _elapsedTimer ??= new DispatcherTimer(DispatcherPriority.Normal, Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(500),
+        };
+        _elapsedTimer.Tick -= OnElapsedTick;
+        _elapsedTimer.Tick += OnElapsedTick;
+        _elapsedTimer.Start();
+        OnElapsedTick(null, EventArgs.Empty);
+    }
+
+    private void StopElapsedTimer() => _elapsedTimer?.Stop();
+
+    private void OnElapsedTick(object? sender, EventArgs e)
+    {
+        var elapsed = DateTime.UtcNow - _recordingStartUtc;
+        if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
+        TimerText.Text = $"{(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
     }
 
     /// <summary>
@@ -310,6 +423,16 @@ public partial class OverlayWindow : Window, IRecordingOverlay
         {
             _ellipsisTimer.Stop();
             _ellipsisTimer.Tick -= OnEllipsisTick;
+        }
+        if (_waveTimer is not null)
+        {
+            _waveTimer.Stop();
+            _waveTimer.Tick -= OnWaveTick;
+        }
+        if (_elapsedTimer is not null)
+        {
+            _elapsedTimer.Stop();
+            _elapsedTimer.Tick -= OnElapsedTick;
         }
     }
 

@@ -25,7 +25,7 @@ public partial class App : Application
     private const string SingletonMutexName = @"Global\VoxGen-Desktop-Singleton-{D8F2E5F4-8A4F-4B1B-A7D6-9B5E2C3D1F4A}";
 
     /// <summary>Single source for the display version (logs + uninstall registry entry).</summary>
-    private const string AppVersion = "2.0.9";
+    private const string AppVersion = "2.0.10";
 
     private Mutex? _singletonMutex;
     private bool _ownsMutex;
@@ -57,7 +57,6 @@ public partial class App : Application
     private OverlayWindow? _overlay;
     private WpfDispatcher? _dispatcher;
     private DictationController? _controller;
-    private WhisperLocalTranscriptionProvider? _localWhisper;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -276,10 +275,10 @@ public partial class App : Application
         _overlay = new OverlayWindow();
         _dispatcher = new WpfDispatcher(Dispatcher);
 
-        // Provider selection. Managed backend when configured (it isn't yet — REPLACE_AT_BUILD).
-        // Until then, DEV STOPGAP: local Whisper tiny.en transcribes real speech with no cloud key
-        // (PRD §3.2 dev scaffold; remove with the Whisper.net packages before shipping). Falls back
-        // to the canned stub if Whisper can't initialize (e.g. no internet on first-run download).
+        // Provider selection: the managed cloud backend when configured, otherwise the canned stub.
+        // (Local Whisper STT was removed to shrink the build now that the managed path ships — it was
+        // always a preview-only stopgap, PRD §6.2.) The stub only runs in local/dev builds that leave
+        // BackendConfig as placeholders.
         ITranscriptionProvider provider;
         if (_transcriber is not null)
         {
@@ -287,20 +286,8 @@ public partial class App : Application
         }
         else
         {
-            try
-            {
-                var whisper = new WhisperLocalTranscriptionProvider(Paths.ModelsDirectory, Logger);
-                _localWhisper = whisper;
-                provider = whisper;
-                // Download + load the model in the background so the first hotkey press is fast.
-                _ = Task.Run(() => whisper.WarmUpAsync());
-                Logger.Info("Using WhisperLocalTranscriptionProvider (tiny.en) — dev stopgap, no backend");
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("Whisper init failed — falling back to stub", new() { ["error"] = ex.Message });
-                provider = new StubTranscriptionProvider();
-            }
+            provider = new StubTranscriptionProvider();
+            Logger.Info("No managed backend configured — using StubTranscriptionProvider");
         }
 
         // Pre-warm the selected mic so the first hotkey press starts capturing immediately (§8.4).
@@ -421,7 +408,6 @@ public partial class App : Application
         try { _hotkeys?.UnregisterAsync().GetAwaiter().GetResult(); } catch { /* best effort */ }
         _hotkeys = null;
         try { _audioCapture?.Dispose(); } catch { /* best effort */ }
-        try { _localWhisper?.Dispose(); } catch { /* best effort */ }
         try { _overlay?.Close(); } catch { /* best effort */ }
         _tray?.Dispose();
         _backendHttp?.Dispose();

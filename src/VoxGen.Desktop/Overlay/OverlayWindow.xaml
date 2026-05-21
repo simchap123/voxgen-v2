@@ -29,13 +29,13 @@
   <!-- Outer margin gives the drop shadow room so it isn't clipped by the window bounds. -->
   <Border x:Name="PillRoot"
           Margin="12"
-          CornerRadius="18"
+          CornerRadius="13"
           Background="{DynamicResource BackgroundBrush}"
           BorderBrush="{DynamicResource BorderBrush}"
           BorderThickness="1"
-          Padding="14,8"
-          MinWidth="160"
-          MinHeight="32">
+          Padding="11,5"
+          MinWidth="112"
+          MinHeight="24">
     <Border.Resources>
       <!-- Gentle pulse for the recording dot. Calm, ~1.2s cycle — not a frantic blink. -->
       <Storyboard x:Key="PulseStoryboard" RepeatBehavior="Forever" AutoReverse="True">
@@ -54,44 +54,44 @@
       <!-- Restrained, soft shadow — depth without glow. -->
       <DropShadowEffect Color="#FF21262E"
                         Direction="270"
-                        ShadowDepth="2"
-                        BlurRadius="14"
-                        Opacity="0.18" />
+                        ShadowDepth="1.5"
+                        BlurRadius="10"
+                        Opacity="0.14" />
     </Border.Effect>
 
     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
       <!-- Status indicator. A pulsing red dot while recording; recoloured sage for transcribing. -->
       <Ellipse x:Name="StatusDot"
-               Width="9" Height="9"
-               Margin="0,0,10,0"
+               Width="7" Height="7"
+               Margin="0,0,7,0"
                VerticalAlignment="Center"
                Fill="{DynamicResource DestructiveBrush}">
         <Ellipse.RenderTransform>
-          <ScaleTransform x:Name="DotScale" CenterX="4.5" CenterY="4.5" ScaleX="1" ScaleY="1" />
+          <ScaleTransform x:Name="DotScale" CenterX="3.5" CenterY="3.5" ScaleX="1" ScaleY="1" />
         </Ellipse.RenderTransform>
       </Ellipse>
 
       <!-- Elapsed time (recording only). Monospaced-ish digits via tabular feel of DM Sans. -->
       <TextBlock x:Name="TimerText"
                  VerticalAlignment="Center"
-                 FontSize="13"
+                 FontSize="11.5"
                  FontWeight="SemiBold"
                  Foreground="{DynamicResource ForegroundBrush}"
-                 Margin="0,0,11,0"
+                 Margin="0,0,8,0"
                  Visibility="Collapsed"
                  Text="0:00" />
 
       <!-- Live waveform (recording only). Sage bars, populated + animated in code-behind. -->
       <StackPanel x:Name="Waveform"
                   Orientation="Horizontal"
-                  Height="22"
+                  Height="15"
                   VerticalAlignment="Center"
                   Visibility="Collapsed" />
 
       <!-- Status text used for Transcribing / error states (hidden while recording). -->
       <TextBlock x:Name="StatusLabel"
                  VerticalAlignment="Center"
-                 FontSize="13"
+                 FontSize="12"
                  FontWeight="Medium"
                  Foreground="{DynamicResource ForegroundBrush}"
                  Text="Recording…" />

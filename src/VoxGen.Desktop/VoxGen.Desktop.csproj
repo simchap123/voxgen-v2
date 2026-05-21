@@ -9,9 +9,9 @@
     <RootNamespace>VoxGen.Desktop</RootNamespace>
     <AssemblyName>VoxGen</AssemblyName>
     <AssemblyTitle>VoxGen</AssemblyTitle>
-    <Version>2.0.9</Version>
-    <FileVersion>2.0.9.0</FileVersion>
-    <InformationalVersion>2.0.9-preview</InformationalVersion>
+    <Version>2.0.10</Version>
+    <FileVersion>2.0.10.0</FileVersion>
+    <InformationalVersion>2.0.10-preview</InformationalVersion>
     <!-- Branded exe / taskbar icon (PRD §15). -->
     <ApplicationIcon>Assets\voxgen.ico</ApplicationIcon>
   </PropertyGroup>
@@ -46,16 +46,12 @@
   </ItemGroup>
 
   <!--
-    LOCAL PREVIEW (v2.0.0-preview) — on-device Whisper STT. PRD §2/§20 keep on-device models out of
-    scope for GA and §6.2 needs approval for non-sanctioned packages; both are deliberately waived
-    for the preview release (PRD §3.4) so early testers get real transcription before the managed
-    Groq backend exists. The provider is swapped for VoxGenManagedProvider automatically once
-    BackendConfig holds real values — revisit whether Whisper stays at GA then.
+    Local on-device Whisper STT (Whisper.net + native ggml binaries) was REMOVED once the managed
+    cloud path shipped — it bundled ~12 MB of native libs across several RIDs for a provider that's
+    never instantiated in cloud mode. PRD §6.2 always scoped it as a preview-only stopgap. The app
+    now uses VoxGenManagedProvider (cloud) and falls back to StubTranscriptionProvider when no
+    backend is configured.
   -->
-  <ItemGroup>
-    <PackageReference Include="Whisper.net" Version="1.9.0" />
-    <PackageReference Include="Whisper.net.Runtime" Version="1.9.0" />
-  </ItemGroup>
 
   <ItemGroup>
     <!-- Brand resources — merged in App.xaml so resource keys resolve everywhere. -->

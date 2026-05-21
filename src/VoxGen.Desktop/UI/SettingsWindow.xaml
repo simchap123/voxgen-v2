@@ -261,7 +261,7 @@
                      Style="{DynamicResource MutedTextStyle}"
                      Margin="0,0,0,28" />
           <TextBlock x:Name="VersionText"
-                     Text="Version 2.0.9"
+                     Text="Version 2.0.10"
                      Margin="0,0,0,8" />
           <TextBlock Style="{DynamicResource MutedTextStyle}"
                      Text="Press, talk, paste, done." />

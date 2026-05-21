@@ -43,7 +43,7 @@ public partial class OverlayWindow : Window, IRecordingOverlay
     private bool _showingError;
 
     // Live waveform + elapsed timer (recording state).
-    private const int BarCount = 18;
+    private const int BarCount = 13;
     private readonly List<Rectangle> _bars = new(BarCount);
     private DispatcherTimer? _waveTimer;
     private DispatcherTimer? _elapsedTimer;
@@ -217,11 +217,11 @@ public partial class OverlayWindow : Window, IRecordingOverlay
         {
             var rect = new Rectangle
             {
-                Width = 3,
-                Height = 4,
-                RadiusX = 1.5,
-                RadiusY = 1.5,
-                Margin = new Thickness(1.5, 0, 1.5, 0),
+                Width = 2.5,
+                Height = 3,
+                RadiusX = 1.25,
+                RadiusY = 1.25,
+                Margin = new Thickness(1.25, 0, 1.25, 0),
                 VerticalAlignment = VerticalAlignment.Center,
                 Fill = bar,
             };
@@ -245,14 +245,14 @@ public partial class OverlayWindow : Window, IRecordingOverlay
     {
         _waveTimer?.Stop();
         // Settle the bars flat so a re-show doesn't flash a stale shape.
-        foreach (var b in _bars) b.Height = 4;
+        foreach (var b in _bars) b.Height = 3;
     }
 
     private void OnWaveTick(object? sender, EventArgs e)
     {
         // Two travelling sine components give an organic, lively shape (not a flat scroll).
         _wavePhase += 0.45;
-        const double min = 4, max = 20;
+        const double min = 3, max = 13;
         for (int i = 0; i < _bars.Count; i++)
         {
             double wave = 0.5 * (1 + Math.Sin(_wavePhase + i * 0.55))
@@ -379,8 +379,8 @@ public partial class OverlayWindow : Window, IRecordingOverlay
 
         // ActualWidth/Height are only meaningful once the window has been laid out; fall back to the
         // declared minimums (+ the 12px outer margin on each side for the shadow) until then.
-        double pillWidth = ActualWidth > 0 ? ActualWidth : 160 + 24;
-        double pillHeight = ActualHeight > 0 ? ActualHeight : 32 + 24;
+        double pillWidth = ActualWidth > 0 ? ActualWidth : 112 + 24;
+        double pillHeight = ActualHeight > 0 ? ActualHeight : 24 + 24;
 
         Left = workLeft + ((workWidth - pillWidth) / 2);
         Top = workTop + workHeight - pillHeight - bottomMargin;

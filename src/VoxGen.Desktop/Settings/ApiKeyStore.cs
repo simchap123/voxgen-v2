@@ -12,7 +12,10 @@ namespace VoxGen.Desktop.Settings;
 /// </summary>
 public sealed class ApiKeyStore
 {
-    private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("VoxGen.GroqApiKey.v1");
+    public const string GroqEntropy = "VoxGen.GroqApiKey.v1";
+    public const string NvidiaEntropy = "VoxGen.NvidiaApiKey.v1";
+
+    private readonly byte[] Entropy;
 
     private readonly string _path;
     private readonly ILogger _logger;
@@ -20,8 +23,9 @@ public sealed class ApiKeyStore
     private string? _cached;
     private bool _loaded;
 
-    public ApiKeyStore(string path, ILogger logger)
+    public ApiKeyStore(string path, ILogger logger, string entropy = GroqEntropy)
     {
+        Entropy = Encoding.UTF8.GetBytes(entropy);
         _path = path ?? throw new ArgumentNullException(nameof(path));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }

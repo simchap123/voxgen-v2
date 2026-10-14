@@ -56,6 +56,12 @@ public sealed record AppSettings
     /// <summary>Hold Ctrl+Shift and rest the mouse on something to hear it read aloud (Groq voice).</summary>
     public bool HoverReadEnabled { get; init; } = true;
 
+    /// <summary>Read-aloud voice engine: "nvidia" (Magpie, free endpoint) or "groq" (Orpheus).</summary>
+    public string ReadAloudEngine { get; init; } = "nvidia";
+
+    /// <summary>NVIDIA Magpie voice (see <c>NvidiaSpeech.Voices</c>).</summary>
+    public string NvidiaVoice { get; init; } = "Aria";
+
     /// <summary>Groq Orpheus voice id for read-aloud (see <c>GroqSpeech.Voices</c>).</summary>
     public string HoverReadVoice { get; init; } = "hannah";
 

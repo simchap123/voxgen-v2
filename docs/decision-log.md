@@ -22,3 +22,16 @@ PRD §6.2/§8.6/§18.1 (managed-only), and the "BYOK out of scope" line.
 
 **Reversibility:** the `ITranscriptionProvider` seam is kept, so a managed provider could be
 restored from git history (`91b9bbc` and earlier) if a hosted tier is ever wanted again.
+
+## 2026-10-14 — Read-aloud voice: NVIDIA Magpie (free) as default, Groq Orpheus optional
+
+**Decision (owner request: "use NVIDIA, find a free voice / the best voice"):** read-aloud uses
+NVIDIA's hosted **Magpie TTS Multilingual** (build.nvidia.com free endpoint, function-id
+`877104f7-e885-42b9-8de8-f6e4c6303969`) by default; Groq Orpheus stays selectable.
+
+- Protocol: Riva gRPC at `grpc.nvcf.nvidia.com`, spoken directly over HTTP/2 with HttpClient and a
+  hand-encoded protobuf (`NvidiaSpeech`) — no gRPC/protobuf packages added.
+- Voices: Aria, Mia, Sofia, Jason, Leo, Ray (`Magpie-Multilingual.EN-US.<Name>`), 22.05 kHz PCM.
+- Key: separate DPAPI file `nvidia-key.bin` (entropy `VoxGen.NvidiaApiKey.v1`).
+- Considered **Chatterbox Multilingual** (also in the catalog, reachable with the key): returned
+  500/502 on both gRPC and REST on 2026-10-14 — not usable yet; revisit later.

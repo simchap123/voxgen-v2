@@ -13,10 +13,12 @@ namespace VoxGen.Desktop.ReadAloud;
 /// Groq text-to-speech (Orpheus). WAV only, 200 characters per request — longer text is split by
 /// <see cref="ChunkText"/> and synthesized piece by piece.
 /// </summary>
-public sealed class GroqSpeech
+public sealed class GroqSpeech : ISpeechSynthesizer
 {
     public const string Model = "canopylabs/orpheus-v1-english";
-    public const int MaxCharsPerRequest = 200;
+    public const int MaxChars = 200;
+
+    int ISpeechSynthesizer.MaxCharsPerRequest => MaxChars;
     public static readonly string[] Voices = ["hannah", "autumn", "diana", "troy", "austin", "daniel"];
     public const string DefaultVoice = "hannah";
 
@@ -35,7 +37,7 @@ public sealed class GroqSpeech
     {
         var key = _getApiKey();
         if (string.IsNullOrWhiteSpace(key)) throw new MissingApiKeyException();
-        if (text.Length > MaxCharsPerRequest) text = text[..MaxCharsPerRequest];
+        if (text.Length > MaxChars) text = text[..MaxChars];
 
         using var req = new HttpRequestMessage(HttpMethod.Post, "audio/speech")
         {
@@ -86,7 +88,7 @@ public sealed class GroqSpeech
     /// ends, then commas/semicolons, then spaces. Stops once <paramref name="totalCap"/> characters
     /// have been emitted so a hovered wall of text can't run up the bill.
     /// </summary>
-    public static List<string> ChunkText(string text, int max = MaxCharsPerRequest, int totalCap = 1000)
+    public static List<string> ChunkText(string text, int max = MaxChars, int totalCap = 1000)
     {
         var chunks = new List<string>();
         var remaining = text.Trim();

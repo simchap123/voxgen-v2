@@ -35,7 +35,7 @@ public sealed class SpeechPlayer : IDisposable
     public const double RateStep = 0.25;
     private const int OutputSampleRate = 48000;
 
-    private readonly GroqSpeech _speech;
+    private readonly Func<ISpeechSynthesizer> _engine;
     private readonly Func<string> _voice;
     private readonly Action<string> _reportError;
     private readonly ILogger _logger;
@@ -47,9 +47,10 @@ public sealed class SpeechPlayer : IDisposable
     private double _rate;
     private bool _paused;
 
-    public SpeechPlayer(GroqSpeech speech, Func<string> voice, double initialRate, Action<string> reportError, ILogger logger)
+    /// <param name="engine">Read per session so switching NVIDIA/Groq in Settings applies to the next read.</param>
+    public SpeechPlayer(Func<ISpeechSynthesizer> engine, Func<string> voice, double initialRate, Action<string> reportError, ILogger logger)
     {
-        _speech = speech ?? throw new ArgumentNullException(nameof(speech));
+        _engine = engine ?? throw new ArgumentNullException(nameof(engine));
         _voice = voice ?? throw new ArgumentNullException(nameof(voice));
         _reportError = reportError ?? throw new ArgumentNullException(nameof(reportError));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -129,18 +130,19 @@ public sealed class SpeechPlayer : IDisposable
 
     private async Task RunSessionAsync(string text, CancellationToken ct)
     {
-        var chunks = GroqSpeech.ChunkText(text, totalCap: 4000);
+        var speech = _engine();
+        var chunks = GroqSpeech.ChunkText(text, speech.MaxCharsPerRequest, totalCap: 4000);
         if (chunks.Count == 0) { FinishIfCurrent(ct); return; }
         _logger.Info("Read aloud", new() { ["chars"] = text.Length, ["chunks"] = chunks.Count });
 
         var voice = _voice();
         try
         {
-            var next = _speech.SynthesizeAsync(chunks[0], voice, ct);
+            var next = speech.SynthesizeAsync(chunks[0], voice, ct);
             for (var i = 0; i < chunks.Count; i++)
             {
                 var wav = await next.ConfigureAwait(false);
-                if (i + 1 < chunks.Count) next = _speech.SynthesizeAsync(chunks[i + 1], voice, ct);
+                if (i + 1 < chunks.Count) next = speech.SynthesizeAsync(chunks[i + 1], voice, ct);
                 await PlayChunkAsync(wav, ct).ConfigureAwait(false);
             }
         }

@@ -275,7 +275,7 @@
           <TextBlock Text="Read aloud"
                      Style="{DynamicResource TitleTextStyle}"
                      Margin="0,0,0,4" />
-          <TextBlock Text="Hear any text on screen in a Groq voice."
+          <TextBlock Text="Hear any text on screen read out in a natural voice."
                      Style="{DynamicResource MutedTextStyle}"
                      Margin="0,0,0,20" />
 
@@ -315,6 +315,41 @@
               <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="Voice engine" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="NVIDIA Magpie is free with an NVIDIA API key. Groq uses your Groq key (paid per use)."
+                         Style="{DynamicResource MutedTextStyle}" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+              <RadioButton x:Name="EngineNvidia" GroupName="ReadEngine" Content="NVIDIA (free)"
+                           Margin="0,0,14,0" VerticalAlignment="Center" Click="OnEngineChanged" />
+              <RadioButton x:Name="EngineGroq" GroupName="ReadEngine" Content="Groq"
+                           VerticalAlignment="Center" Click="OnEngineChanged" />
+            </StackPanel>
+          </Grid>
+
+          <Grid x:Name="NvidiaKeyRow" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="NVIDIA API key" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock x:Name="NvidiaKeyStatus" Text="No key saved — get one free at build.nvidia.com"
+                         Style="{DynamicResource MutedTextStyle}" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+              <PasswordBox x:Name="NvidiaKeyBox" Width="170" Padding="6,4" VerticalContentAlignment="Center" />
+              <Button Content="Save" Style="{DynamicResource PrimaryButtonStyle}" Padding="14,5" Margin="8,0,0,0"
+                      Click="OnSaveNvidiaKeyClick" />
+            </StackPanel>
+          </Grid>
+
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
               <TextBlock Text="Shortcut" FontWeight="SemiBold" Margin="0,0,0,2" />
               <TextBlock Text="The keys you hold while pointing."
                          Style="{DynamicResource MutedTextStyle}" />
@@ -334,7 +369,7 @@
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0" Margin="0,0,16,0">
               <TextBlock Text="Voice" FontWeight="SemiBold" Margin="0,0,0,2" />
-              <TextBlock Text="Hannah, Autumn and Diana are female; Troy, Austin and Daniel are male."
+              <TextBlock x:Name="VoiceHint" Text="Aria, Mia and Sofia are female; Jason, Leo and Ray are male."
                          Style="{DynamicResource MutedTextStyle}"
                          TextWrapping="Wrap" />
             </StackPanel>

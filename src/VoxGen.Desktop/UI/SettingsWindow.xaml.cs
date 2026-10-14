@@ -43,6 +43,7 @@ public partial class SettingsWindow : Window
     private readonly HttpClient _groqHttp;
     private readonly Action _shutdownForUpdate;
     private readonly Action<string> _previewSpeech;
+    private readonly ApiKeyStore _nvidiaKey;
 
     private bool _suppress;
     private bool _recordingHotkey;
@@ -60,8 +61,10 @@ public partial class SettingsWindow : Window
         UpdateService updates,
         HttpClient groqHttp,
         Action shutdownForUpdate,
-        Action<string> previewSpeech)
+        Action<string> previewSpeech,
+        ApiKeyStore nvidiaKey)
     {
+        _nvidiaKey = nvidiaKey;
         _previewSpeech = previewSpeech;
         _settings = settings;
         _logger = logger;
@@ -75,7 +78,6 @@ public partial class SettingsWindow : Window
         InitializeComponent();
 
         PopulateMicrophones();
-        VoiceCombo.ItemsSource = GroqSpeech.Voices;
 
         _settings.Changed += OnSettingsChanged;
         _apiKeys.Changed += OnApiKeyChanged;
@@ -143,7 +145,18 @@ public partial class SettingsWindow : Window
                                                               s.HoverReadShortcut == "CtrlAlt" ? "Ctrl+Alt" : "Ctrl+Shift");
             SpeedSlider.Value = s.HoverReadRate;
             SpeedLabel.Text = $"{s.HoverReadRate:0.##}×";
-            VoiceCombo.SelectedItem = Array.IndexOf(GroqSpeech.Voices, s.HoverReadVoice) >= 0 ? s.HoverReadVoice : GroqSpeech.DefaultVoice;
+            var nvidia = s.ReadAloudEngine != "groq";
+            EngineNvidia.IsChecked = nvidia;
+            EngineGroq.IsChecked = !nvidia;
+            NvidiaKeyRow.Visibility = nvidia ? Visibility.Visible : Visibility.Collapsed;
+            VoiceCombo.ItemsSource = nvidia ? NvidiaSpeech.Voices : GroqSpeech.Voices;
+            VoiceCombo.SelectedItem = nvidia
+                ? (Array.IndexOf(NvidiaSpeech.Voices, s.NvidiaVoice) >= 0 ? s.NvidiaVoice : NvidiaSpeech.DefaultVoice)
+                : (Array.IndexOf(GroqSpeech.Voices, s.HoverReadVoice) >= 0 ? s.HoverReadVoice : GroqSpeech.DefaultVoice);
+            VoiceHint.Text = nvidia
+                ? "Aria, Mia and Sofia are female; Jason, Leo and Ray are male."
+                : "Hannah, Autumn and Diana are female; Troy, Austin and Daniel are male.";
+            RefreshNvidiaKeyStatus();
             SaveTextToggle.IsChecked = s.SaveTextHistoryLocal;
             SaveAudioToggle.IsChecked = s.SaveAudioHistoryLocal;
             SelectMicrophone(s.SelectedMicrophoneId);
@@ -338,10 +351,47 @@ public partial class SettingsWindow : Window
         _previewSpeech($"Hi, I'm {char.ToUpper(voice[0]) + voice[1..]}. This is how VoxGen will read your screen.");
     }
 
+    private void RefreshNvidiaKeyStatus()
+    {
+        var key = _nvidiaKey.Get();
+        NvidiaKeyStatus.Text = string.IsNullOrEmpty(key)
+            ? "No key saved — get one free at build.nvidia.com"
+            : $"Key saved ({ApiKeyStore.Mask(key)}). Paste a new one to replace it.";
+    }
+
+    private void OnSaveNvidiaKeyClick(object sender, RoutedEventArgs e)
+    {
+        var key = NvidiaKeyBox.Password.Trim();
+        if (key.Length == 0) return;
+        try
+        {
+            _nvidiaKey.Save(key);
+            NvidiaKeyBox.Clear();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Failed to save NVIDIA key", new() { ["error"] = ex.Message });
+            NvidiaKeyStatus.Text = $"Couldn't save the key: {ex.Message}";
+            return;
+        }
+        RefreshNvidiaKeyStatus();
+    }
+
+    private void OnEngineChanged(object sender, RoutedEventArgs e)
+    {
+        if (_suppress) return;
+        var engine = EngineGroq.IsChecked == true ? "groq" : "nvidia";
+        if (!_settings.TryUpdate(c => c with { ReadAloudEngine = engine }, out var error))
+        {
+            ReportSaveFailure("voice engine", error);
+        }
+    }
+
     private void OnVoiceChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_suppress || VoiceCombo.SelectedItem is not string voice) return;
-        if (!_settings.TryUpdate(c => c with { HoverReadVoice = voice }, out var error))
+        var nvidia = _settings.Current.ReadAloudEngine != "groq";
+        if (!_settings.TryUpdate(c => nvidia ? c with { NvidiaVoice = voice } : c with { HoverReadVoice = voice }, out var error))
         {
             ReportSaveFailure("voice", error);
         }

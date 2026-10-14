@@ -27,7 +27,7 @@ public class GroqSpeechTests
         var chunks = GroqSpeech.ChunkText(text);
 
         Assert.True(chunks.Count > 1);
-        Assert.All(chunks, c => Assert.True(c.Length <= GroqSpeech.MaxCharsPerRequest, $"chunk too long: {c.Length}"));
+        Assert.All(chunks, c => Assert.True(c.Length <= GroqSpeech.MaxChars, $"chunk too long: {c.Length}"));
         Assert.All(chunks, c => Assert.EndsWith(".", c));
     }
 

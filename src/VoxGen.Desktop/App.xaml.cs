@@ -25,7 +25,7 @@ public partial class App : Application
     private const string SingletonMutexName = @"Global\VoxGen-Desktop-Singleton-{D8F2E5F4-8A4F-4B1B-A7D6-9B5E2C3D1F4A}";
 
     /// <summary>Single source for the display version (logs + uninstall registry entry).</summary>
-    private const string AppVersion = "2.4.1";
+    private const string AppVersion = "2.5.0";
 
     private Mutex? _singletonMutex;
     private bool _ownsMutex;
@@ -47,6 +47,8 @@ public partial class App : Application
     private UpdateService? _updates;
     private GroqWhisperProvider? _transcriber;
     private HoverReadService? _hoverReader;
+    private ApiKeyStore? _nvidiaKey;
+    private HttpClient? _nvidiaHttp;
     private SpeechPlayer? _speechPlayer;
     private ReadAloudBar? _readAloudBar;
     private DateTime _lastHoverErrorUtc = DateTime.MinValue;
@@ -156,7 +158,8 @@ public partial class App : Application
         _settingsWindow ??= new SettingsWindow(
             SettingsService, Logger, _deviceEnumerator!, _apiKeys!, _history!, _updates!, _groqHttp!,
             shutdownForUpdate: () => Dispatcher.BeginInvoke(() => Shutdown()),
-            previewSpeech: text => _speechPlayer?.Speak(text));
+            previewSpeech: text => _speechPlayer?.Speak(text),
+            nvidiaKey: _nvidiaKey!);
         if (section is not null) _settingsWindow.ShowSectionByName(section);
         if (!_settingsWindow.IsVisible)
         {
@@ -170,6 +173,7 @@ public partial class App : Application
     private void WireLocalServices()
     {
         _apiKeys = new ApiKeyStore(Paths.ApiKeyFile, Logger);
+        _nvidiaKey = new ApiKeyStore(Paths.NvidiaKeyFile, Logger, ApiKeyStore.NvidiaEntropy);
         _history = new HistoryStore(Paths.HistoryFile, Paths.RecordingsDirectory, Logger);
         _groqHttp = new HttpClient { BaseAddress = new Uri(GroqWhisperProvider.BaseUrl), Timeout = TimeSpan.FromSeconds(60) };
         _transcriber = new GroqWhisperProvider(
@@ -187,10 +191,13 @@ public partial class App : Application
     /// <summary>Hold Ctrl+Shift + hover Ã¢â€ â€™ Groq reads the text under the mouse.</summary>
     private void WireHoverRead()
     {
-        var speech = new GroqSpeech(_groqHttp!, () => _apiKeys!.Get());
+        _nvidiaKey ??= new ApiKeyStore(Paths.NvidiaKeyFile, Logger, ApiKeyStore.NvidiaEntropy);
+        _nvidiaHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+        var groqSpeech = new GroqSpeech(_groqHttp!, () => _apiKeys!.Get());
+        var nvidiaSpeech = new NvidiaSpeech(_nvidiaHttp, () => _nvidiaKey.Get());
         _speechPlayer = new SpeechPlayer(
-            speech,
-            voice: () => SettingsService.Current.HoverReadVoice,
+            engine: () => UsingNvidia() ? nvidiaSpeech : groqSpeech,
+            voice: () => UsingNvidia() ? SettingsService.Current.NvidiaVoice : SettingsService.Current.HoverReadVoice,
             initialRate: SettingsService.Current.HoverReadRate,
             reportError: message =>
             {
@@ -231,7 +238,7 @@ public partial class App : Application
 
         _hoverReader = new HoverReadService(
             _speechPlayer,
-            enabled: () => SettingsService.Current.HoverReadEnabled && !_isPaused && _apiKeys!.HasKey,
+            enabled: () => SettingsService.Current.HoverReadEnabled && !_isPaused && ReadAloudKeyPresent(),
             shortcut: () => SettingsService.Current.HoverReadShortcut,
             Logger,
             pressedWhileDisabled: () =>
@@ -243,12 +250,18 @@ public partial class App : Application
                     ? "Read aloud is turned off. Turn it on in Settings → Read aloud."
                     : _isPaused
                         ? "VoxGen is paused. Right-click the tray icon and choose Resume."
-                        : "Add your Groq API key in Settings → API key to use read aloud.";
+                        : UsingNvidia()
+                            ? "Add your NVIDIA API key in Settings → Read aloud to use the free voice."
+                            : "Add your Groq API key in Settings → API key to use read aloud.";
                 Logger.Info("Read-aloud shortcut pressed while disabled", new() { ["reason"] = why });
                 Dispatcher.BeginInvoke(() => _tray?.ShowBalloon("VoxGen read-aloud", why));
             });
         _hoverReader.Start();
     }
+
+    private static bool UsingNvidia() => SettingsService.Current.ReadAloudEngine != "groq";
+
+    private bool ReadAloudKeyPresent() => UsingNvidia() ? _nvidiaKey!.HasKey : _apiKeys!.HasKey;
 
     /// <summary>First run (or key removed): open Settings on the API key page.</summary>
     private void PromptForApiKeyIfMissing()
@@ -442,6 +455,7 @@ public partial class App : Application
         try { _overlay?.Close(); } catch { /* best effort */ }
         _tray?.Dispose();
         _groqHttp?.Dispose();
+        _nvidiaHttp?.Dispose();
         _updateHttp?.Dispose();
 
         if (_ownsMutex)

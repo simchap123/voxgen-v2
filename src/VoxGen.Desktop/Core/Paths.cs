@@ -17,6 +17,8 @@ public static class Paths
     public static string SettingsFile => Path.Combine(AppDataRoot, "settings.json");
     /// <summary>The user's Groq API key, DPAPI-encrypted.</summary>
     public static string ApiKeyFile => Path.Combine(AppDataRoot, "groq-key.bin");
+    /// <summary>The user's NVIDIA API key (read-aloud voice), DPAPI-encrypted.</summary>
+    public static string NvidiaKeyFile => Path.Combine(AppDataRoot, "nvidia-key.bin");
     public static string HistoryFile => Path.Combine(AppDataRoot, "history.jsonl");
     public static string RecordingsDirectory => Path.Combine(AppDataRoot, "recordings");
     public static string TempAudioDirectory => Path.Combine(AppDataRoot, "temp-audio");

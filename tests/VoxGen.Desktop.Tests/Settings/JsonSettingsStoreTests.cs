@@ -43,7 +43,7 @@ public sealed class JsonSettingsStoreTests : IDisposable
             HotkeyValue = "RightControl",
             CleanupEnabled = false,
             SaveTextHistoryLocal = false,
-            SaveAudioHistoryLocal = true,
+            SaveAudioHistoryLocal = false,
             UseLocalHistoryForAi = true,
             StartupOnBoot = true,
             OverlayEnabled = false,

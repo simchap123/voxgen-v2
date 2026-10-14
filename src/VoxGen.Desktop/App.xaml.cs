@@ -4,19 +4,18 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using VoxGen.Desktop.Audio;
-using VoxGen.Desktop.Auth;
-using VoxGen.Desktop.Backend;
 using VoxGen.Desktop.Clipboard;
 using VoxGen.Desktop.Core;
+using VoxGen.Desktop.History;
 using VoxGen.Desktop.Hotkeys;
 using VoxGen.Desktop.Installer;
-using VoxGen.Desktop.License;
 using VoxGen.Desktop.Logging;
 using VoxGen.Desktop.Overlay;
 using VoxGen.Desktop.Settings;
 using VoxGen.Desktop.Transcription;
 using VoxGen.Desktop.Tray;
 using VoxGen.Desktop.UI;
+using VoxGen.Desktop.Updater;
 
 namespace VoxGen.Desktop;
 
@@ -25,7 +24,7 @@ public partial class App : Application
     private const string SingletonMutexName = @"Global\VoxGen-Desktop-Singleton-{D8F2E5F4-8A4F-4B1B-A7D6-9B5E2C3D1F4A}";
 
     /// <summary>Single source for the display version (logs + uninstall registry entry).</summary>
-    private const string AppVersion = "2.0.11";
+    private const string AppVersion = "2.1.0";
 
     private Mutex? _singletonMutex;
     private bool _ownsMutex;
@@ -40,14 +39,12 @@ public partial class App : Application
     private TrayIcon? _tray;
     private SettingsWindow? _settingsWindow;
     private Win32HotkeyService? _hotkeys;
-    private HttpClient? _backendHttp;
-    private HttpClient? _supabaseHttp;
-    private SessionTokenStore? _sessionStore;
-    private LicenseCheckCache? _licenseCache;
-    private VoxGenBackendClient? _backendClient;
-    private VoxGenManagedProvider? _transcriber;
-    private SupabaseAuth? _supabaseAuth;
-    private SessionManager? _sessionManager;
+    private HttpClient? _groqHttp;
+    private HttpClient? _updateHttp;
+    private ApiKeyStore? _apiKeys;
+    private HistoryStore? _history;
+    private UpdateService? _updates;
+    private GroqWhisperProvider? _transcriber;
     private bool _isPaused;
 
     // Dictation pipeline (this slice).
@@ -70,7 +67,15 @@ public partial class App : Application
             return;
         }
 
+        // After a self-update the previous process may still be exiting; wait for it to let go
+        // of the singleton instead of silently quitting.
+        var afterUpdate = Array.Exists(e.Args, a => string.Equals(a, UpdateService.AfterUpdateArg, StringComparison.OrdinalIgnoreCase));
         _singletonMutex = new Mutex(initiallyOwned: true, SingletonMutexName, out _ownsMutex);
+        for (var i = 0; afterUpdate && !_ownsMutex && i < 40; i++)
+        {
+            try { _ownsMutex = _singletonMutex.WaitOne(500); }
+            catch (AbandonedMutexException) { _ownsMutex = true; }
+        }
         if (!_ownsMutex)
         {
             Shutdown(exitCode: 0);
@@ -79,7 +84,8 @@ public partial class App : Application
 
         Paths.EnsureCreated();
         Logger = new FileLogger(Paths.LogsDirectory);
-        Logger.Info("VoxGen starting", new() { ["version"] = AppVersion });
+        Logger.Info("VoxGen starting", new() { ["version"] = AppVersion, ["afterUpdate"] = afterUpdate });
+        UpdateService.CleanupOldVersion();
 
         // Register a per-user "Installed apps" entry so the portable exe is uninstallable the normal
         // Windows way. Best-effort; no-ops for dev/`dotnet run`.
@@ -102,13 +108,18 @@ public partial class App : Application
             return;
         }
 
+        WireLocalServices();
         WireTray();
-        WireAuth();
-        WireBackend();
         WireDictation();
         WireHotkeys();
         WireSettingsReactions();
-        MaybePromptSignIn();
+        PromptForApiKeyIfMissing();
+        _ = Task.Run(BackgroundUpdateCheckAsync);
+
+        if (afterUpdate)
+        {
+            _tray?.ShowBalloon("VoxGen", $"Updated to version {AppVersion}.");
+        }
 
         base.OnStartup(e);
     }
@@ -120,12 +131,7 @@ public partial class App : Application
         _tray = new TrayIcon();
         _tray.ShowSettingsRequested += (_, _) =>
         {
-            _settingsWindow ??= new SettingsWindow(SettingsService, Logger, _deviceEnumerator!, _sessionManager, GetLicenseStatusAsync);
-            if (!_settingsWindow.IsVisible)
-            {
-                _settingsWindow.Show();
-            }
-            _settingsWindow.Activate();
+            ShowSettings(null);
         };
         _tray.PauseToggleRequested += (_, _) =>
         {
@@ -136,157 +142,84 @@ public partial class App : Application
         _tray.QuitRequested += (_, _) => Shutdown();
     }
 
-    // -------- auth (Supabase) --------
-
-    private void WireAuth()
+    private void ShowSettings(string? section)
     {
-        // Supabase is configured (URL + publishable key), so build the auth + session manager even
-        // before the transcription backend exists — sign-in is needed the moment the backend goes live.
-        if (!SupabaseConfigured())
+        _settingsWindow ??= new SettingsWindow(
+            SettingsService, Logger, _deviceEnumerator!, _apiKeys!, _history!, _updates!, _groqHttp!,
+            shutdownForUpdate: () => Dispatcher.BeginInvoke(() => Shutdown()));
+        if (section is not null) _settingsWindow.ShowSectionByName(section);
+        if (!_settingsWindow.IsVisible)
         {
-            Logger.Warning("Supabase not configured — sign-in unavailable");
-            return;
+            _settingsWindow.Show();
         }
+        _settingsWindow.Activate();
+    }
+
+    // -------- local services: API key, Groq, history, updates --------
+
+    private void WireLocalServices()
+    {
+        _apiKeys = new ApiKeyStore(Paths.ApiKeyFile, Logger);
+        _history = new HistoryStore(Paths.HistoryFile, Paths.RecordingsDirectory, Logger);
+        _groqHttp = new HttpClient { BaseAddress = new Uri(GroqWhisperProvider.BaseUrl), Timeout = TimeSpan.FromSeconds(60) };
+        _transcriber = new GroqWhisperProvider(
+            _groqHttp,
+            () => _apiKeys.Get(),
+            () => SettingsService.Current.CleanupEnabled,
+            () => SettingsService.Current.Language,
+            Logger);
+
+        _updateHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        _updates = new UpdateService(_updateHttp, Version.Parse(AppVersion), Logger);
+        Logger.Info("Local services ready", new() { ["hasApiKey"] = _apiKeys.HasKey, ["canSelfUpdate"] = _updates.CanSelfUpdate });
+    }
+
+    /// <summary>First run (or key removed): open Settings on the API key page.</summary>
+    private void PromptForApiKeyIfMissing()
+    {
+        if (_apiKeys!.HasKey) return;
         try
         {
-            _supabaseHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-            _supabaseAuth = new SupabaseAuth(_supabaseHttp, BackendConfig.SupabaseUrl, BackendConfig.SupabaseAnonKey);
-            _sessionStore = new SessionTokenStore(Paths.SessionTokenFile, Logger);
-            _sessionManager = new SessionManager(_supabaseAuth, _sessionStore, Logger);
-            Logger.Info("Auth ready", new() { ["signedIn"] = _sessionManager.IsSignedIn });
+            ShowSettings("ApiKey");
         }
         catch (Exception ex)
         {
-            Logger.Error("Auth init failed", new() { ["error"] = ex.Message });
+            Logger.Error("Failed to open settings for API key", new() { ["error"] = ex.Message });
         }
     }
 
-    // -------- backend / transcription --------
-
-    private void WireBackend()
+    private async Task BackgroundUpdateCheckAsync()
     {
-        // BackendConfig ships with REPLACE_AT_BUILD placeholders. Until the VoxGen backend URL is set
-        // (after deploy), skip managed init — the app keeps using the local Whisper preview provider.
-        if (!BackendConfigured())
+        if (_updates is null) return;
+        try
         {
-            Logger.Warning("Backend not configured — skipping backend init", new()
+            await Task.Delay(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+            var update = await _updates.CheckAsync(CancellationToken.None).ConfigureAwait(false);
+            if (update is null) return;
+            Logger.Info("Update available", new() { ["tag"] = update.Tag });
+            await Dispatcher.InvokeAsync(() =>
             {
-                ["voxgenBaseUrl"] = BackendConfig.VoxGenBackendBaseUrl,
+                _settingsWindow?.ShowUpdate(update);
+                _tray?.ShowBalloon("VoxGen", $"Version {update.Version.ToString(3)} is ready. Open Settings → About and click Update now.");
             });
-            return;
-        }
-
-        if (_sessionManager is null)
-        {
-            Logger.Error("Backend configured but auth is not — cannot wire managed transcription");
-            return;
-        }
-
-        try
-        {
-            _backendHttp = new HttpClient { BaseAddress = new Uri(BackendConfig.VoxGenBackendBaseUrl) };
-            _licenseCache = new LicenseCheckCache(Paths.LicenseCacheFile, Logger);
-            _backendClient = new VoxGenBackendClient(_backendHttp);
-
-            // Real token source: the session manager refreshes proactively + on demand.
-            var sessions = _sessionManager;
-            Func<CancellationToken, Task<string>> getToken = ct => sessions.GetAccessTokenAsync(ct);
-
-            _transcriber = new VoxGenManagedProvider(
-                _backendClient,
-                getToken,
-                Logger,
-                new TranscriptionOptions
-                {
-                    CleanupEnabled = SettingsService.Current.CleanupEnabled,
-                    Language = SettingsService.Current.Language,
-                });
-
-            // Background license validation — keeps the offline cache fresh.
-            if (_sessionManager.IsSignedIn)
-            {
-                _ = Task.Run(BackgroundValidateLicenseAsync);
-            }
         }
         catch (Exception ex)
         {
-            Logger.Error("Backend init failed", new() { ["error"] = ex.Message });
+            Logger.Warning("Background update check failed", new() { ["error"] = ex.Message });
         }
     }
 
-    private static bool SupabaseConfigured() =>
-        !string.IsNullOrWhiteSpace(BackendConfig.SupabaseUrl)
-        && BackendConfig.SupabaseUrl != "REPLACE_AT_BUILD"
-        && !string.IsNullOrWhiteSpace(BackendConfig.SupabaseAnonKey)
-        && BackendConfig.SupabaseAnonKey != "REPLACE_AT_BUILD";
-
-    private static bool BackendConfigured() =>
-        !string.IsNullOrWhiteSpace(BackendConfig.VoxGenBackendBaseUrl)
-        && BackendConfig.VoxGenBackendBaseUrl != "REPLACE_AT_BUILD"
-        && SupabaseConfigured();
-
-    /// <summary>When the managed backend is live but no one's signed in, prompt sign-in (PRD §8.2).</summary>
-    private void MaybePromptSignIn()
+    /// <summary>Saves a finished dictation to local history per the user's settings.</summary>
+    private void SaveToHistory(AudioClip clip, TranscriptionResult result)
     {
-        if (!BackendConfigured() || _sessionManager is null || _sessionManager.IsSignedIn) return;
-        try
-        {
-            var window = new SignInWindow(_sessionManager, Logger);
-            window.Show();
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Failed to show sign-in window", new() { ["error"] = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// Fetches the user's current license/trial status for the Settings → Account panel: a live
-    /// backend check when signed in (refreshing the offline cache), falling back to the cached
-    /// status if the backend is unreachable. Returns null only when nothing is known.
-    /// </summary>
-    private async Task<LicenseStatus?> GetLicenseStatusAsync(CancellationToken ct)
-    {
-        if (_backendClient is not null && _sessionManager is { IsSignedIn: true })
-        {
-            try
-            {
-                var token = await _sessionManager.GetAccessTokenAsync(ct).ConfigureAwait(false);
-                var status = await _backendClient.ValidateLicenseAsync(token, ct).ConfigureAwait(false);
-                try { _licenseCache?.Save(status); } catch { /* cache is best-effort */ }
-                return status;
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning("License fetch failed; falling back to cache", new() { ["error"] = ex.Message });
-            }
-        }
-        return _licenseCache?.Load();
-    }
-
-    private async Task BackgroundValidateLicenseAsync()
-    {
-        if (_backendClient is null || _licenseCache is null || _sessionManager is null) return;
-        try
-        {
-            var token = await _sessionManager.GetAccessTokenAsync(CancellationToken.None).ConfigureAwait(false);
-            var status = await _backendClient.ValidateLicenseAsync(token, CancellationToken.None)
-                                             .ConfigureAwait(false);
-            _licenseCache.Save(status);
-            Logger.Info("License validated", new() { ["state"] = status.State.ToString() });
-        }
-        catch (Exception ex)
-        {
-            if (_licenseCache.IsWithinOfflineGrace(LicenseCheckCache.DefaultGraceWindow))
-            {
-                Logger.Warning("License check failed — within offline grace", new() { ["error"] = ex.Message });
-            }
-            else
-            {
-                Logger.Error("License check failed — outside offline grace", new() { ["error"] = ex.Message });
-                // TODO (overlay slice): notify the user via overlay/tray balloon.
-            }
-        }
+        var s = SettingsService.Current;
+        if (!s.SaveTextHistoryLocal && !s.SaveAudioHistoryLocal) return;
+        _history?.Add(
+            result.FinalText,
+            result.RawText,
+            clip.Duration,
+            s.SaveAudioHistoryLocal ? clip.WavBytes : null,
+            s.SaveTextHistoryLocal);
     }
 
     // -------- dictation pipeline --------
@@ -299,20 +232,9 @@ public partial class App : Application
         _overlay = new OverlayWindow();
         _dispatcher = new WpfDispatcher(Dispatcher);
 
-        // Provider selection: the managed cloud backend when configured, otherwise the canned stub.
-        // (Local Whisper STT was removed to shrink the build now that the managed path ships — it was
-        // always a preview-only stopgap, PRD §6.2.) The stub only runs in local/dev builds that leave
-        // BackendConfig as placeholders.
-        ITranscriptionProvider provider;
-        if (_transcriber is not null)
-        {
-            provider = _transcriber;
-        }
-        else
-        {
-            provider = new StubTranscriptionProvider();
-            Logger.Info("No managed backend configured — using StubTranscriptionProvider");
-        }
+        // Groq direct with the user's own key. With no key saved, the provider throws
+        // MissingApiKeyException and the overlay says "Add your Groq API key in Settings".
+        ITranscriptionProvider provider = _transcriber!;
 
         // Pre-warm the selected mic so the first hotkey press starts capturing immediately (§8.4).
         try
@@ -327,7 +249,8 @@ public partial class App : Application
         _controller = new DictationController(
             _audioCapture, provider, _clipboardPaste, _overlay, () => _isPaused, Logger,
             liveTypingEnabled: () => SettingsService.Current.LiveTypingEnabled,
-            keystrokeTyper: new KeystrokeTyper(Logger));
+            keystrokeTyper: new KeystrokeTyper(Logger),
+            onTranscribed: SaveToHistory);
     }
 
     // -------- hotkeys --------
@@ -434,8 +357,8 @@ public partial class App : Application
         try { _audioCapture?.Dispose(); } catch { /* best effort */ }
         try { _overlay?.Close(); } catch { /* best effort */ }
         _tray?.Dispose();
-        _backendHttp?.Dispose();
-        _supabaseHttp?.Dispose();
+        _groqHttp?.Dispose();
+        _updateHttp?.Dispose();
 
         if (_ownsMutex)
         {

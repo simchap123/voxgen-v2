@@ -55,6 +55,12 @@ public sealed class NAudioCapture : IAudioCapture
     private string? _deviceId;
     private string? _deviceName;
 
+    // Self-healing: the id the user asked for (null = default), and a flag set when WASAPI reports
+    // the device was invalidated (0x88890004 — unplugged, sleep/wake, default-device switch). The
+    // next Start() rebuilds the capture instead of failing until the app is restarted.
+    private string? _requestedDeviceId;
+    private bool _needsReinit;
+
     // Accumulates raw device-native PCM bytes for the current recording. Guarded by _sync.
     private MemoryStream? _pcmBuffer;
     private WaveFormat? _captureFormat;
@@ -88,11 +94,20 @@ public sealed class NAudioCapture : IAudioCapture
             if (_isRecording)
                 throw new InvalidOperationException("Cannot re-initialize the capture device while recording.");
 
+            _requestedDeviceId = deviceId;
+            InitializeCore(deviceId, force: false);
+        }
+    }
+
+    /// <summary>Caller holds <see cref="_sync"/>. <paramref name="force"/> rebuilds even on the same endpoint.</summary>
+    private void InitializeCore(string? deviceId, bool force)
+    {
+        {
             MMDevice device = ResolveDevice(deviceId);
             try
             {
                 // Already warmed on this exact endpoint — nothing to do.
-                if (_capture is not null && string.Equals(_deviceId, device.ID, StringComparison.Ordinal))
+                if (!force && _capture is not null && string.Equals(_deviceId, device.ID, StringComparison.Ordinal))
                 {
                     device.Dispose();
                     return;
@@ -110,6 +125,7 @@ public sealed class NAudioCapture : IAudioCapture
                 _deviceId = device.ID;
                 _deviceName = device.FriendlyName;
                 _captureFormat = capture.WaveFormat;
+                _needsReinit = false;
 
                 _logger.Info("Capture device warmed", new()
                 {
@@ -134,19 +150,41 @@ public sealed class NAudioCapture : IAudioCapture
         lock (_sync)
         {
             ThrowIfDisposed();
-            if (_capture is null)
-                throw new InvalidOperationException("Initialize must be called before Start.");
             if (_isRecording)
                 return; // already capturing — treat as idempotent
 
-            _pcmBuffer = new MemoryStream();
-            _stopCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _isRecording = true;
+            // Device lost since last use (or never came up at startup) — rebuild before starting.
+            if (_capture is null || _needsReinit)
+            {
+                _logger.Info("Rebuilding capture device before start", new() { ["wasInvalidated"] = _needsReinit });
+                InitializeCore(_requestedDeviceId, force: true);
+            }
 
-            // This is the moment the WASAPI AudioClient is activated and the mic indicator lights up.
-            _capture.StartRecording();
+            try
+            {
+                StartCore();
+            }
+            catch (Exception ex)
+            {
+                // Stale endpoint (typically 0x88890004 AUDCLNT_E_DEVICE_INVALIDATED): rebuild once and retry.
+                _logger.Warning("StartRecording failed; rebuilding device and retrying", new() { ["error"] = ex.Message });
+                _isRecording = false;
+                InitializeCore(_requestedDeviceId, force: true);
+                StartCore();
+            }
         }
         _logger.Debug("Recording started", new() { ["deviceId"] = _deviceId });
+    }
+
+    /// <summary>Caller holds <see cref="_sync"/> and has ensured <see cref="_capture"/> is set.</summary>
+    private void StartCore()
+    {
+        _pcmBuffer = new MemoryStream();
+        _stopCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _isRecording = true;
+
+        // This is the moment the WASAPI AudioClient is activated and the mic indicator lights up.
+        _capture!.StartRecording();
     }
 
     public async Task<AudioClip?> StopAsync()
@@ -294,8 +332,21 @@ public sealed class NAudioCapture : IAudioCapture
     {
         lock (_sync)
         {
-            if (e.Exception is not null) _stopCompletion?.TrySetException(e.Exception);
-            else _stopCompletion?.TrySetResult(true);
+            if (e.Exception is not null)
+            {
+                // The endpoint is dead; whatever was captured so far is still assembled by StopAsync,
+                // and the next Start() rebuilds the device.
+                _needsReinit = true;
+                if (_stopCompletion is null || !_stopCompletion.TrySetException(e.Exception))
+                {
+                    _logger.Warning("Capture device stopped unexpectedly; will rebuild on next start",
+                        new() { ["error"] = e.Exception.Message });
+                }
+            }
+            else
+            {
+                _stopCompletion?.TrySetResult(true);
+            }
         }
     }
 

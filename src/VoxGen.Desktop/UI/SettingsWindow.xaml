@@ -60,11 +60,16 @@
                      IsChecked="True"
                      Content="General"
                      Click="OnNavGeneralClick" />
-        <RadioButton x:Name="NavAccount"
+        <RadioButton x:Name="NavApiKey"
                      Style="{DynamicResource SidebarNavItemStyle}"
                      GroupName="SettingsSection"
-                     Content="Account"
-                     Click="OnNavAccountClick" />
+                     Content="API key"
+                     Click="OnNavApiKeyClick" />
+        <RadioButton x:Name="NavHistory"
+                     Style="{DynamicResource SidebarNavItemStyle}"
+                     GroupName="SettingsSection"
+                     Content="History"
+                     Click="OnNavHistoryClick" />
         <RadioButton x:Name="NavAbout"
                      Style="{DynamicResource SidebarNavItemStyle}"
                      GroupName="SettingsSection"
@@ -190,28 +195,174 @@
             </StackPanel>
           </Grid>
 
-          <Border Background="{DynamicResource AccentBrush}"
-                  CornerRadius="6"
-                  Padding="14,12"
-                  Margin="0,12,0,0">
-            <TextBlock Style="{DynamicResource MutedTextStyle}"
-                       Foreground="{DynamicResource ForegroundBrush}"
-                       Text="Language, theme, history, start-on-boot and the overlay toggle land in a later slice — see PRD §8.9." />
-          </Border>
         </StackPanel>
 
-        <!-- Account -->
-        <StackPanel x:Name="AccountPanel" Visibility="Collapsed">
-          <TextBlock Text="Account"
+        <!-- API key -->
+        <StackPanel x:Name="ApiKeyPanel" Visibility="Collapsed">
+          <TextBlock Text="API key"
                      Style="{DynamicResource TitleTextStyle}"
                      Margin="0,0,0,4" />
-          <TextBlock Text="Sign-in, subscription, and trial status."
+          <TextBlock Text="VoxGen sends your audio straight to Groq with your own key. No account, no VoxGen server."
+                     Style="{DynamicResource MutedTextStyle}"
+                     TextWrapping="Wrap"
+                     Margin="0,0,0,28" />
+
+          <Border Background="{DynamicResource AccentBrush}"
+                  CornerRadius="8"
+                  Padding="18,16"
+                  Margin="0,0,0,16">
+            <StackPanel>
+              <TextBlock x:Name="ApiKeyStatusText"
+                         Text="No key saved"
+                         FontWeight="SemiBold"
+                         Foreground="{DynamicResource ForegroundBrush}"
+                         Margin="0,0,0,2" />
+              <TextBlock x:Name="ApiKeyStatusDetail"
+                         Text="Dictation needs a Groq API key. Groq has a free tier."
+                         Style="{DynamicResource MutedTextStyle}"
+                         TextWrapping="Wrap"
+                         Margin="0,0,0,12" />
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <PasswordBox x:Name="ApiKeyBox"
+                             Grid.Column="0"
+                             Padding="6,5"
+                             VerticalContentAlignment="Center"
+                             KeyDown="OnApiKeyBoxKeyDown" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0">
+                  <Button x:Name="SaveApiKeyButton"
+                          Content="Save"
+                          Style="{DynamicResource PrimaryButtonStyle}"
+                          Padding="16,6"
+                          Click="OnSaveApiKeyClick" />
+                  <Button x:Name="TestApiKeyButton"
+                          Content="Test"
+                          Padding="14,6"
+                          Margin="8,0,0,0"
+                          Click="OnTestApiKeyClick" />
+                  <Button x:Name="RemoveApiKeyButton"
+                          Content="Remove"
+                          Padding="14,6"
+                          Margin="8,0,0,0"
+                          Click="OnRemoveApiKeyClick" />
+                </StackPanel>
+              </Grid>
+              <TextBlock x:Name="ApiKeyResultText"
+                         Style="{DynamicResource MutedTextStyle}"
+                         TextWrapping="Wrap"
+                         Margin="0,10,0,0"
+                         Visibility="Collapsed" />
+            </StackPanel>
+          </Border>
+
+          <TextBlock Style="{DynamicResource MutedTextStyle}" TextWrapping="Wrap">
+            <Run Text="Get a key at " />
+            <Hyperlink NavigateUri="https://console.groq.com/keys" RequestNavigate="OnHyperlinkNavigate">console.groq.com/keys</Hyperlink>
+            <Run Text=". The key is encrypted with your Windows account and stored only on this PC." />
+          </TextBlock>
+        </StackPanel>
+
+        <!-- History -->
+        <StackPanel x:Name="HistoryPanel" Visibility="Collapsed">
+          <TextBlock Text="History"
+                     Style="{DynamicResource TitleTextStyle}"
+                     Margin="0,0,0,4" />
+          <TextBlock Text="Everything is saved on this PC only."
                      Style="{DynamicResource MutedTextStyle}"
                      Margin="0,0,0,28" />
 
-          <!-- Sign-in status card. Reflects SessionManager state (PRD §8.2). When not signed in,
-               cloud transcription can't run, so this is the re-entry point if the startup prompt
-               was dismissed. -->
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="Save transcripts" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="Keep the text of every dictation."
+                         Style="{DynamicResource MutedTextStyle}" />
+            </StackPanel>
+            <CheckBox x:Name="SaveTextToggle"
+                      Grid.Column="1"
+                      VerticalAlignment="Center"
+                      Click="OnSaveTextToggleClick" />
+          </Grid>
+
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="Save recordings" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="Keep the audio of every dictation as a WAV file."
+                         Style="{DynamicResource MutedTextStyle}" />
+            </StackPanel>
+            <CheckBox x:Name="SaveAudioToggle"
+                      Grid.Column="1"
+                      VerticalAlignment="Center"
+                      Click="OnSaveAudioToggleClick" />
+          </Grid>
+
+          <StackPanel Orientation="Horizontal" Margin="0,4,0,12">
+            <Button Content="Open recordings folder" Padding="14,6" Click="OnOpenRecordingsClick" />
+            <Button x:Name="ClearHistoryButton" Content="Clear history" Padding="14,6" Margin="8,0,0,0"
+                    Click="OnClearHistoryClick" />
+            <Button x:Name="ConfirmClearButton" Content="Delete all history and recordings"
+                    Padding="14,6" Margin="8,0,0,0" Visibility="Collapsed"
+                    Foreground="{DynamicResource DestructiveBrush}"
+                    Click="OnConfirmClearClick" />
+          </StackPanel>
+
+          <TextBlock x:Name="HistoryEmptyText"
+                     Text="No dictations yet."
+                     Style="{DynamicResource MutedTextStyle}"
+                     Visibility="Collapsed" />
+
+          <ItemsControl x:Name="HistoryList">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Border BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="0,0,0,1"
+                        Padding="0,10">
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                      <TextBlock Text="{Binding When}"
+                                 Style="{DynamicResource MutedTextStyle}"
+                                 Margin="0,0,0,2" />
+                      <TextBlock Text="{Binding Text}"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                      <Button Content="Copy" Padding="10,4" Tag="{Binding}"
+                              Visibility="{Binding CopyVisibility}"
+                              Click="OnHistoryCopyClick" />
+                      <Button Content="Play" Padding="10,4" Margin="6,0,0,0" Tag="{Binding}"
+                              Visibility="{Binding PlayVisibility}"
+                              Click="OnHistoryPlayClick" />
+                    </StackPanel>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+
+        <!-- About -->
+        <StackPanel x:Name="AboutPanel" Visibility="Collapsed">
+          <TextBlock Text="About"
+                     Style="{DynamicResource TitleTextStyle}"
+                     Margin="0,0,0,4" />
+          <TextBlock Text="VoxGen — a free, tiny native dictation utility."
+                     Style="{DynamicResource MutedTextStyle}"
+                     Margin="0,0,0,28" />
+
           <Border Background="{DynamicResource AccentBrush}"
                   CornerRadius="8"
                   Padding="18,16"
@@ -222,81 +373,32 @@
                 <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
               <StackPanel Grid.Column="0" Margin="0,0,16,0" VerticalAlignment="Center">
-                <TextBlock x:Name="AccountStatusText"
-                           Text="Not signed in"
+                <TextBlock x:Name="VersionText"
+                           Text="Version"
                            FontWeight="SemiBold"
                            Foreground="{DynamicResource ForegroundBrush}"
                            Margin="0,0,0,2" />
-                <TextBlock x:Name="AccountStatusDetail"
-                           Text="Sign in to use VoxGen's managed transcription."
+                <TextBlock x:Name="UpdateStatusText"
+                           Text="Check GitHub for a newer version."
                            Style="{DynamicResource MutedTextStyle}"
                            TextWrapping="Wrap" />
               </StackPanel>
               <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button x:Name="SignInButton"
-                        Content="Sign in"
-                        Padding="16,7"
-                        Click="OnAccountSignInClick" />
-                <Button x:Name="SignOutButton"
-                        Content="Sign out"
-                        Padding="16,7"
-                        Visibility="Collapsed"
-                        Click="OnAccountSignOutClick" />
-              </StackPanel>
-            </Grid>
-          </Border>
-
-          <!-- Plan / trial status + upgrade routing. Shown when signed in. -->
-          <Border x:Name="PlanCard"
-                  Background="{DynamicResource AccentBrush}"
-                  CornerRadius="8"
-                  Padding="18,16"
-                  Margin="0,0,0,16"
-                  Visibility="Collapsed">
-            <Grid>
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-              </Grid.ColumnDefinitions>
-              <StackPanel Grid.Column="0" Margin="0,0,16,0" VerticalAlignment="Center">
-                <TextBlock x:Name="PlanText"
-                           Text="Plan"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource ForegroundBrush}"
-                           Margin="0,0,0,2" />
-                <TextBlock x:Name="PlanDetail"
-                           Text="Checking…"
-                           Style="{DynamicResource MutedTextStyle}"
-                           TextWrapping="Wrap" />
-              </StackPanel>
-              <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button x:Name="UpgradeButton" Content="Upgrade"
+                <Button x:Name="CheckUpdateButton"
+                        Content="Check for updates"
+                        Padding="14,6"
+                        Click="OnCheckUpdateClick" />
+                <Button x:Name="InstallUpdateButton"
+                        Content="Update now"
                         Style="{DynamicResource PrimaryButtonStyle}"
-                        Padding="16,7" Click="OnUpgradeClick" />
-                <Button x:Name="ManageBillingButton" Content="Manage billing"
-                        Padding="14,7" Margin="8,0,0,0"
-                        Visibility="Collapsed" Click="OnManageBillingClick" />
+                        Padding="16,6"
+                        Margin="8,0,0,0"
+                        Visibility="Collapsed"
+                        Click="OnInstallUpdateClick" />
               </StackPanel>
             </Grid>
           </Border>
 
-          <TextBlock x:Name="AccountUnavailableText"
-                     Text="Account sign-in isn't available in this build."
-                     Style="{DynamicResource MutedTextStyle}"
-                     Visibility="Collapsed" />
-        </StackPanel>
-
-        <!-- About -->
-        <StackPanel x:Name="AboutPanel" Visibility="Collapsed">
-          <TextBlock Text="About"
-                     Style="{DynamicResource TitleTextStyle}"
-                     Margin="0,0,0,4" />
-          <TextBlock Text="VoxGen — a tiny native dictation utility."
-                     Style="{DynamicResource MutedTextStyle}"
-                     Margin="0,0,0,28" />
-          <TextBlock x:Name="VersionText"
-                     Text="Version 2.0.11"
-                     Margin="0,0,0,8" />
           <TextBlock Style="{DynamicResource MutedTextStyle}"
                      Text="Press, talk, paste, done." />
         </StackPanel>

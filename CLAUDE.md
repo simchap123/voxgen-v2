@@ -1,6 +1,6 @@
 # VoxGen v2 — native Windows dictation utility
 
-A tiny tray utility: hold a hotkey, talk, release, polished text is pasted into the active window. A ground-up rebuild of v1 (Electron) as a native Windows app, paired with a VoxGen-managed transcription backend so users never see an API key.
+A tiny, free tray utility: hold a hotkey, talk, release, polished text is pasted into the active window. A ground-up rebuild of v1 (Electron) as a native Windows app. **Fully local since v2.1.0 (2026-10-14):** the user brings their own Groq API key; no account, no database, no VoxGen backend, no payments. See `docs/decision-log.md`.
 
 **Source of truth for product scope:** [VoxGen-v2-PRD.md](VoxGen-v2-PRD.md). Read it before changing behaviour; cite section numbers in PRs (e.g. "per §10.5"). When code and PRD diverge, the PRD wins unless the change has been agreed and the PRD updated in the same patch.
 
@@ -11,8 +11,8 @@ A tiny tray utility: hold a hotkey, talk, release, polished text is pasted into 
 - **C# / .NET (latest LTS)**
 - **WPF** for the UI — chosen over WinUI 3 deliberately for mature tray integration and simpler packaging at this size
 - **Win32 via P/Invoke** for global hotkeys, active-window capture, clipboard, synthetic paste
-- **DPAPI (`ProtectedData`)** for the Supabase session token
-- **`HttpClient` + `System.Text.Json`** for all HTTP/JSON (no SDKs, including Supabase)
+- **DPAPI (`ProtectedData`)** for the user's Groq API key
+- **`HttpClient` + `System.Text.Json`** for all HTTP/JSON (no SDKs)
 
 ### Sanctioned third-party packages
 
@@ -24,46 +24,30 @@ The default is zero packages. Anything not on this list **needs explicit approva
 | Local history DB | **Microsoft.Data.Sqlite** | No zero-dep alternative; Microsoft-owned |
 | Auto-update + rollback | **Velopack** | Self-rolled updaters are fragile and security-sensitive |
 
-Notably **not** in the project: Supabase SDK (use REST via HttpClient), any audio encoding library (ship WAV), any UI/MVVM framework on top of WPF.
+Notably **not** in the project: any cloud SDK, any audio encoding library (ship WAV), any UI/MVVM framework on top of WPF.
 
-## Backend
-
-A separate service (`/backend` codebase — **Vercel serverless functions; §21.1 resolved 2026-05-20**, reusing V1's `api/` at `C:\Users\spent\projects\VoxGen V1\api` as reference + V1's Supabase project & Groq key) that:
-1. Verifies the user's Supabase session token
-2. Validates subscription / trial / usage quota
-3. Proxies WAV audio to Groq Whisper using **VoxGen-held keys**
-4. Optionally applies AI cleanup
-5. Returns the final text
-6. Records usage metadata only — **no audio, no transcripts persisted**
-
-The desktop app and the backend are two different hard problems and are built/tested separately, but **nothing ships to a real user until both are done and connected** (no BYOK fallback exists in v1).
-
-### Transcription connection — how VoxGen stays connected to Groq Whisper
-
-**The desktop NEVER connects to Groq directly** (hard invariant #1 — no key in the app). "Connected to Groq" means the desktop holds a live connection to the **VoxGen backend**, which holds the Groq key and proxies to Groq. The path:
+## Transcription (local, BYOK)
 
 ```
-DictationController → VoxGenManagedProvider → VoxGenBackendClient.TranscribeAsync
-  → POST {VoxGenBackendBaseUrl}/v1/transcribe   (multipart WAV + Bearer <Supabase JWT>)
-  → backend: verify JWT → quota → Groq whisper-large-v3-turbo @ api.groq.com/openai/v1
-  → { final_text, raw_text, language, duration_ms, cleanup_applied }
+DictationController → GroqWhisperProvider
+  → POST https://api.groq.com/openai/v1/audio/transcriptions  (multipart WAV, whisper-large-v3-turbo, Bearer <user key>)
+  → [cleanup on] POST .../chat/completions  (llama-3.3-70b-versatile, same prompt the old backend used)
 ```
 
-**Three conditions must ALWAYS hold for transcription to reach Groq. If any fails, the app silently falls back to `StubTranscriptionProvider` or errors — and no Groq call happens:**
+- Key: `Settings/ApiKeyStore` → DPAPI file `%APPDATA%\VoxGen\groq-key.bin`. Read per request, so saving a key applies instantly.
+- No key → `MissingApiKeyException` → overlay "Add your Groq API key in Settings". First run opens Settings on the API key page.
+- Cleanup failure falls back to the raw transcript. Upload cap 25 MB (~13 min) → `RecordingTooLongException`, WAV kept.
+- Vercel (`voxgenflow.vercel.app`, VoxGen repo `website/`) is ONLY the marketing + download site now.
 
-1. **Config is real, not placeholder.** `BackendConfig.VoxGenBackendBaseUrl`, `SupabaseUrl`, `SupabaseAnonKey` must be substituted (build-time). While any equals `REPLACE_AT_BUILD`, `App.BackendConfigured()` returns false → `WireBackend` is skipped → `WireDictation` uses the stub. Current values: Supabase `https://xsdngjfnsszulezxvsjd.supabase.co`; backend base = the V2 deployment (V1 ref `https://voxgenflow.vercel.app`); anon key from the Supabase dashboard. **The Groq key itself lives ONLY in the backend's Vercel env (`GROQ_API_KEY`) — never in `BackendConfig`, never in the desktop.**
+## History (local)
 
-2. **A live Supabase JWT is always available.** `VoxGenManagedProvider`'s `getAccessTokenAsync` delegate must return a valid, non-expired access token. The token manager refreshes **proactively** (before `SupabaseSession.ExpiresAtUtc`) via `SupabaseAuth.RefreshAsync`, and the provider retries once on a 401 (the delegate is expected to refresh on that retry). Tokens persist via DPAPI (`SessionTokenStore`). No token → `VoxGenBackendClient` throws `"Access token required"` *before* any network call. (As of 2026-05-20 `getToken` is still a stub returning the stored token or empty — wiring a real sign-in + refreshing token manager is the open work; see the auth gap below.)
+`History/HistoryStore` — `history.jsonl` (one JSON entry per line) + WAVs in `recordings/`, both under `%APPDATA%\VoxGen`. Toggles: `SaveTextHistoryLocal`, `SaveAudioHistoryLocal`. Settings → History lists, copies, plays, clears.
 
-3. **The backend is reachable at request time.** Per hard invariant #7, the **offline grace period covers license checks only — NOT transcription.** A transcription against an unreachable backend surfaces `BackendUnavailableException`; the handler must **keep the WAV** and show "can't reach VoxGen", never delete the recording (invariant #3).
+## Updates (one click)
 
-**Backend contract (build `/backend` to match the client that already exists):**
-- `POST /v1/transcribe` — `multipart/form-data` fields `audio` (WAV file), `language` (omit for auto), `cleanup_enabled` (`true`/`false`); header `Authorization: Bearer <Supabase JWT>`. Returns `{ final_text, raw_text, language, duration_ms, cleanup_applied }`.
-- `GET /v1/license` — returns the `LicenseStatus` shape; same Bearer auth.
-- **Auth = verify the Supabase JWT** (validate signature/`/auth/v1/user`), then derive the user and run V1's license/trial/quota logic keyed by user id. **Do NOT port V1's email-in-body trust model** (PRD §9.4).
-- Map errors to the status codes the client already handles: 401 unauthenticated, 402 trial expired, 403 quota exceeded, 429 rate-limited (+`Retry-After`), 5xx unavailable.
+`Updater/UpdateService` reads `api.github.com/repos/simchap123/voxgen-v2/releases/latest`, downloads the `VoxGen.exe` asset, renames the running exe to `.old`, moves the new one in, relaunches with `--after-update` (which waits for the singleton mutex). Background check 10 s after start → tray balloon; Settings → About → Update now. Dev builds (VoxGen.dll beside the exe) don't self-update.
 
-**Status (2026-05-20):** desktop loop + `VoxGenBackendClient` + `VoxGenManagedProvider` + `SupabaseAuth` are built; the `/backend` `/v1/transcribe` endpoint, real `BackendConfig` values, and a sign-in/token-manager are the remaining gaps before Groq actually runs.
+**Releasing:** bump `AppVersion` in `App.xaml.cs` + `<Version>` in the csproj, commit, `git tag vX.Y.Z && git push origin vX.Y.Z`. `.github/workflows/release.yml` builds, tests and attaches `VoxGen.exe`. Tags must parse as a version (`v2.1.0`, `v2.1.1-preview`).
 
 ---
 
@@ -77,14 +61,14 @@ DictationController → VoxGenManagedProvider → VoxGenBackendClient.Transcribe
 /Clipboard       /Backend         /Tests
 ```
 
-`/Backend` here is the **client-side code that talks to the VoxGen backend.** The backend service itself lives in a separate codebase.
+`/Auth`, `/Backend`, `/License` were removed in v2.1.0 (fully local). Current extra folders: `/History`, `/Updater`.
 
 ---
 
 ## Hard invariants — do not break these
 
-1. **No API key of any kind in the desktop app.** No key entry UI, no key encryption, no key validation. v1 ships managed-only — see PRD §6.2, §8.6, §18.1. The `ITranscriptionProvider` interface stays so BYOK can be added later, but only `VoxGenManagedProvider` is wired up in v1.
-2. **All user content is local-only.** Transcripts, audio, dictionary, writing style, app-context history, usage history — local SQLite only. **Supabase and the VoxGen backend never store them.** The backend *transits* audio for one request and records usage metadata only (PRD §6.4, §9.3).
+1. **The API key never leaves the machine except to Groq.** DPAPI-encrypted file only — never in `settings.json`, never logged.
+2. **All user content is local-only.** Transcripts, audio, settings — `%APPDATA%\VoxGen`. Nothing is sent anywhere except the audio/text to Groq for the one request.
 3. **Never lose a transcript.** Any failure after recording must preserve the user's words. Don't delete the temp WAV on transcription failure until the user dismisses the error. On paste failure, leave the final text on the clipboard and show a small message (PRD §5.3, §8.4, §8.8, §13).
 4. **Settings reliability is non-negotiable — PRD §10.** Read the whole section before touching anything in `/Settings`. The shortlist:
    - One single source of truth; strongly-typed model; no string keys at call sites
@@ -95,9 +79,9 @@ DictationController → VoxGenManagedProvider → VoxGenBackendClient.Transcribe
    - Every toggle has an automated test
 5. **Pre-warm the mic.** Keep the selected device initialised in the background so a hotkey press starts buffering immediately. Opening the device on keypress clips the first word and the <100 ms target is unreachable (PRD §8.4, §14.1).
 6. **Capture the foreground window before any VoxGen UI appears.** That handle is what restores focus and targets the paste (PRD §8.5).
-7. **Offline grace period applies to license checks, not transcription.** Cache the last successful license/trial validation and allow continued use for the configured window (recommend 7–14 days, see §21.4). Transcription itself needs connectivity — show a clear "can't reach VoxGen" message and keep the recording (PRD §8.12, §13).
-8. **Sign the executable and the installer.** EV certificates need a hardware token and weeks of lead time — procurement starts at the beginning of the build, not the end (PRD §14.3).
-9. **Trial = 30 days OR a usage cap, whichever comes first.** The cap is an abuse ceiling, sized so a real heavy user never reaches it; never surface it in the UI (PRD §16).
+7. **Mic must self-heal.** USB/webcam mics get invalidated (`0x88890004`) on unplug, sleep/wake, default-device switch. `NAudioCapture` flags `_needsReinit` and rebuilds on the next `Start()`, retrying once. Don't regress this.
+8. **Sign the executable** when a certificate is available (PRD §14.3).
+9. **Free.** No trial, plans, licensing or payment code.
 10. **Branding is VoxGen everywhere** — installer name, tray icon, exe metadata, publisher. No framework defaults visible to the user (PRD §15).
 
 ---
@@ -120,13 +104,10 @@ The frontend-design skill's "AI slop test" applies to the WPF UI too: no glowing
 
 | Concern | Where |
 |---|---|
-| Transcripts, audio, dictionary, app-context, usage history | **Local SQLite** (`Microsoft.Data.Sqlite`) — see PRD §12 for tables |
-| Settings | **Local JSON file** (`System.Text.Json`) — schema in PRD §11; `settings_schema_version` for forward migration |
-| Supabase session token | **DPAPI-protected local file** — auth state, not a user setting |
-| Account / subscription / trial / device activation / latest version | **Supabase** |
-| Transcription routing + usage metering + abuse limits | **VoxGen backend** |
-
-There are **no API key fields** in the settings schema in v1. Adding one is a scope change — talk to the user first.
+| Settings | `%APPDATA%\VoxGen\settings.json` (System.Text.Json, PRD §11) |
+| Groq API key | `%APPDATA%\VoxGen\groq-key.bin` (DPAPI, CurrentUser) |
+| History | `%APPDATA%\VoxGen\history.jsonl` + `recordings\*.wav` |
+| Failed-transcription audio | `%APPDATA%\VoxGen\temp-audio\` |
 
 ---
 
@@ -146,7 +127,6 @@ If a change pushes any of these the wrong way, flag it explicitly in the PR.
 
 Don't add these. They're either deferred or roadmap:
 
-- BYOK (bring-your-own-key)
 - AI Prompt Mode (voice → generated content)
 - Local / on-device AI models
 - Team accounts, enterprise admin, cloud sync, cloud audio storage
@@ -157,31 +137,15 @@ If a request implies any of these, surface the conflict before writing code.
 
 ---
 
-## Open decisions (PRD §21)
-
-These are unsettled at PRD time and should be resolved before the relevant code lands:
-
-1. ~~**Backend hosting**~~ — **Resolved 2026-05-20:** Vercel serverless reusing V1's `api/` + V1's Supabase project & Groq key; auth rebuilt to verify the Supabase JWT (PRD §9.4)
-2. **Trial usage cap** — size against Groq Whisper minutes-per-dollar
-3. **Monthly fair-use caps** per subscription tier
-4. **Offline license-check grace period** — 7–14 days recommended
-5. **Code-signing certificate** — OV vs EV, procurement now
-6. **Pricing-page changes** — Lifetime/BYOK plan hidden until BYOK ships
-
-When you make progress on one, update the PRD in the same change.
-
----
-
 ## Build & run
 
 The solution is scaffolded: `VoxGen.sln` → `src\VoxGen.Desktop` (WPF tray app, `net10.0-windows`) + `tests\VoxGen.Desktop.Tests` (xUnit).
 
 ```
 dotnet build VoxGen.sln
-dotnet test  VoxGen.sln                      # 55 tests as of 2026-05-20
+dotnet test  VoxGen.sln                      # 71 tests as of 2026-10-14
 dotnet run --project src\VoxGen.Desktop      # launches the tray app (no main window)
 ```
 
-**SDK gotcha:** the .NET 10 SDK (10.0.300) lives at `C:\Program Files\dotnet` but is **not on PATH**. In PowerShell prepend it first: `$env:Path = "C:\Program Files\dotnet;$env:Path"`. The Bash tool can't see `dotnet` at all. Logs: `%APPDATA%\VoxGen\logs`. With `BackendConfig` unset, startup logs `Backend not configured — skipping backend init` and the app uses `StubTranscriptionProvider` (by design).
+**SDK:** on the SimchaPentelnik machine the .NET 10 SDK is user-local at `%LOCALAPPDATA%\dotnet` (not on PATH): `$env:DOTNET_ROOT="$env:LOCALAPPDATA\dotnet"; $env:Path="$env:LOCALAPPDATA\dotnet;$env:Path"`. Logs: `%APPDATA%\VoxGen\logs`.
 
-The backend lives in a separate codebase; document its commands in its own CLAUDE.md.

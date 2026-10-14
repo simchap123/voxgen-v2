@@ -16,7 +16,7 @@ public enum AppTheme
 /// <summary>
 /// Strongly-typed user settings — PRD §10 rule 2, §11 schema.
 /// Immutable record: mutate only via <see cref="SettingsService.TryUpdate"/> using <c>with</c> expressions.
-/// There are intentionally no API key fields in v1 (PRD §11, §18.1).
+/// The Groq API key is NOT here — it lives DPAPI-encrypted in <see cref="ApiKeyStore"/>.
 /// </summary>
 public sealed record AppSettings
 {
@@ -38,8 +38,8 @@ public sealed record AppSettings
 
     public bool SaveTextHistoryLocal { get; init; } = true;
 
-    /// <summary>PRD §8.11 — audio history defaults OFF.</summary>
-    public bool SaveAudioHistoryLocal { get; init; } = false;
+    /// <summary>Keep each recording as a WAV in the local recordings folder (local only).</summary>
+    public bool SaveAudioHistoryLocal { get; init; } = true;
 
     public bool UseLocalHistoryForAi { get; init; } = false;
 

@@ -4,7 +4,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using VoxGen.Desktop.Audio;
-using VoxGen.Desktop.Backend;
 using VoxGen.Desktop.Clipboard;
 using VoxGen.Desktop.Hotkeys;
 using VoxGen.Desktop.Logging;
@@ -53,6 +52,7 @@ public sealed class DictationController
     private readonly Func<bool> _isPaused;
     private readonly ILogger _logger;
     private readonly Func<AudioClip, string?> _preserveRecording;
+    private readonly Action<AudioClip, TranscriptionResult>? _onTranscribed;
     private readonly Func<bool> _liveTypingEnabled;
     private readonly IKeystrokeTyper? _typer;
 
@@ -77,7 +77,8 @@ public sealed class DictationController
         ILogger logger,
         Func<AudioClip, string?>? preserveRecording = null,
         Func<bool>? liveTypingEnabled = null,
-        IKeystrokeTyper? keystrokeTyper = null)
+        IKeystrokeTyper? keystrokeTyper = null,
+        Action<AudioClip, TranscriptionResult>? onTranscribed = null)
     {
         _capture = capture ?? throw new ArgumentNullException(nameof(capture));
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
@@ -88,6 +89,7 @@ public sealed class DictationController
         _preserveRecording = preserveRecording ?? DefaultPreserveRecording;
         _liveTypingEnabled = liveTypingEnabled ?? (() => false);
         _typer = keystrokeTyper;
+        _onTranscribed = onTranscribed;
     }
 
     /// <summary>Subscribe to the hotkey service, marshalling its (pump-thread) events to the UI thread.</summary>
@@ -191,13 +193,17 @@ public sealed class DictationController
                 ["error"] = ex.Message,
                 ["savedTo"] = savedPath ?? "(save failed)",
             });
-            // Surface WHY it failed so the user can act (sign in / upgrade / wait), instead of a
+            // Surface WHY it failed so the user can act (add key / fix key / wait), instead of a
             // single opaque message for every cause.
             _overlay.ShowError(TranscriptionErrorMessage(ex));
             _liveActive = false;
             State = DictationState.Idle;
             return;
         }
+
+        // Local history (text + recording) — best-effort, must never block the paste.
+        try { _onTranscribed?.Invoke(clip, result); }
+        catch (Exception ex) { _logger.Warning("History save failed", new() { ["error"] = ex.Message }); }
 
         if (_liveActive)
         {
@@ -335,13 +341,11 @@ public sealed class DictationController
     /// </summary>
     private static string TranscriptionErrorMessage(Exception ex) => ex switch
     {
-        TrialExpiredException => "Trial ended — upgrade in Settings",
-        QuotaExceededException => "Usage limit reached — try later",
-        RateLimitedException => "Too many requests — wait a moment",
-        UnauthenticatedException => "Sign in to dictate (Settings)",
-        BackendUnavailableException => "Can't reach VoxGen — recording saved",
-        InvalidOperationException when ex.Message.Contains("signed in", StringComparison.OrdinalIgnoreCase)
-            => "Sign in to dictate (Settings)",
+        MissingApiKeyException => "Add your Groq API key in Settings",
+        InvalidApiKeyException => "Groq API key rejected — check Settings",
+        RecordingTooLongException => "Too long for Groq (~13 min max) — recording saved",
+        GroqRateLimitedException => "Groq rate limit — wait a moment",
+        GroqUnavailableException => "Can't reach Groq — recording saved",
         _ => "Couldn't transcribe — recording saved",
     };
 }

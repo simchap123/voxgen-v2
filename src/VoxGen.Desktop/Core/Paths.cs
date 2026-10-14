@@ -15,20 +15,18 @@ public static class Paths
     public static string AppDataDirectory => AppDataRoot;
 
     public static string SettingsFile => Path.Combine(AppDataRoot, "settings.json");
-    public static string SessionTokenFile => Path.Combine(AppDataRoot, "session.bin");
-    public static string LicenseCacheFile => Path.Combine(AppDataRoot, "license.json");
-    public static string HistoryDatabase => Path.Combine(AppDataRoot, "history.db");
+    /// <summary>The user's Groq API key, DPAPI-encrypted.</summary>
+    public static string ApiKeyFile => Path.Combine(AppDataRoot, "groq-key.bin");
+    public static string HistoryFile => Path.Combine(AppDataRoot, "history.jsonl");
+    public static string RecordingsDirectory => Path.Combine(AppDataRoot, "recordings");
     public static string TempAudioDirectory => Path.Combine(AppDataRoot, "temp-audio");
     public static string LogsDirectory => Path.Combine(AppDataRoot, "logs");
-
-    /// <summary>Local STT model files (dev stopgap — Whisper ggml). Not used by the shipped managed path.</summary>
-    public static string ModelsDirectory => Path.Combine(AppDataRoot, "models");
 
     public static void EnsureCreated()
     {
         Directory.CreateDirectory(AppDataRoot);
         Directory.CreateDirectory(TempAudioDirectory);
         Directory.CreateDirectory(LogsDirectory);
-        Directory.CreateDirectory(ModelsDirectory);
+        Directory.CreateDirectory(RecordingsDirectory);
     }
 }

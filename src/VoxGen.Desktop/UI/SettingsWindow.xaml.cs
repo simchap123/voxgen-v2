@@ -1,29 +1,32 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Navigation;
 using VoxGen.Desktop.Audio;
-using VoxGen.Desktop.Auth;
-using VoxGen.Desktop.Backend;
+using VoxGen.Desktop.History;
 using VoxGen.Desktop.Hotkeys;
-using VoxGen.Desktop.License;
 using VoxGen.Desktop.Logging;
 using VoxGen.Desktop.Settings;
+using VoxGen.Desktop.Transcription;
+using VoxGen.Desktop.Updater;
 
 namespace VoxGen.Desktop.UI;
 
 /// <summary>
-/// The single settings window — PRD §8.9. Tray-resident app, so closing hides rather than
+/// The single settings window â€” PRD Â§8.9. Tray-resident app, so closing hides rather than
 /// disposes; call <see cref="ForceClose"/> from <c>App.OnExit</c> at real shutdown.
 ///
-/// State flow follows PRD §10 strictly: user changes a control → SettingsService.TryUpdate →
-/// service raises Changed → this window re-reads SettingsService.Current and updates the UI.
+/// State flow follows PRD Â§10 strictly: user changes a control â†’ SettingsService.TryUpdate â†’
+/// service raises Changed â†’ this window re-reads SettingsService.Current and updates the UI.
 /// Controls are never optimistic on their own; if TryUpdate fails, the service rolls back and
 /// re-fires Changed, so the UI reverts naturally. App reacts to the same Changed event to
 /// re-initialize capture / re-register the hotkey.
@@ -33,43 +36,66 @@ public partial class SettingsWindow : Window
     private readonly SettingsService _settings;
     private readonly ILogger _logger;
     private readonly IAudioDeviceEnumerator _deviceEnumerator;
-    private readonly SessionManager? _sessions;
-    private readonly Func<CancellationToken, Task<LicenseStatus?>>? _getLicenseStatus;
+    private readonly ApiKeyStore _apiKeys;
+    private readonly HistoryStore _history;
+    private readonly UpdateService _updates;
+    private readonly HttpClient _groqHttp;
+    private readonly Action _shutdownForUpdate;
 
     private bool _suppress;
     private bool _recordingHotkey;
-    private bool _accountBusy;
+    private UpdateInfo? _pendingUpdate;
 
     /// <summary>Sentinel device representing "let Windows pick" (persisted as a null microphone id).</summary>
     private static readonly AudioDevice DefaultDevice = new() { Id = string.Empty, Name = "System default" };
 
-    /// <param name="sessions">
-    /// The signed-in session, or <c>null</c> when Supabase auth isn't configured (no-login local build).
-    /// When null, the Account tab shows a "not available" note instead of sign-in controls.
-    /// </param>
     public SettingsWindow(
         SettingsService settings,
         ILogger logger,
         IAudioDeviceEnumerator deviceEnumerator,
-        SessionManager? sessions = null,
-        Func<CancellationToken, Task<LicenseStatus?>>? getLicenseStatus = null)
+        ApiKeyStore apiKeys,
+        HistoryStore history,
+        UpdateService updates,
+        HttpClient groqHttp,
+        Action shutdownForUpdate)
     {
         _settings = settings;
         _logger = logger;
         _deviceEnumerator = deviceEnumerator;
-        _sessions = sessions;
-        _getLicenseStatus = getLicenseStatus;
+        _apiKeys = apiKeys;
+        _history = history;
+        _updates = updates;
+        _groqHttp = groqHttp;
+        _shutdownForUpdate = shutdownForUpdate;
 
         InitializeComponent();
 
         PopulateMicrophones();
 
         _settings.Changed += OnSettingsChanged;
-        if (_sessions is not null) _sessions.Changed += OnSessionChanged;
+        _apiKeys.Changed += OnApiKeyChanged;
+        _history.Changed += OnHistoryChanged;
         Closing += OnClosing;
 
+        VersionText.Text = $"Version {_updates.CurrentVersion.ToString(3)}";
+        if (!_updates.CanSelfUpdate)
+        {
+            UpdateStatusText.Text = "Updates are available for the downloaded VoxGen.exe only (this is a dev build).";
+        }
+
         ApplySettingsToUi(_settings.Current);
-        RefreshAccountUi();
+        RefreshApiKeyUi();
+        RefreshHistory();
+    }
+
+    /// <summary>Opens straight onto a section, e.g. "ApiKey" on first run.</summary>
+    public void ShowSectionByName(string name)
+    {
+        NavGeneral.IsChecked = name == "General";
+        NavApiKey.IsChecked = name == "ApiKey";
+        NavHistory.IsChecked = name == "History";
+        NavAbout.IsChecked = name == "About";
+        ShowSection(name);
     }
 
     // ============ population ============
@@ -103,6 +129,8 @@ public partial class SettingsWindow : Window
             HotkeyDisplay.Text = s.HotkeyValue;
             ModeHold.IsChecked = s.HotkeyMode == HotkeyMode.Hold;
             ModeToggle.IsChecked = s.HotkeyMode == HotkeyMode.Toggle;
+            SaveTextToggle.IsChecked = s.SaveTextHistoryLocal;
+            SaveAudioToggle.IsChecked = s.SaveAudioHistoryLocal;
             SelectMicrophone(s.SelectedMicrophoneId);
         }
         finally
@@ -120,193 +148,254 @@ public partial class SettingsWindow : Window
         MicrophoneCombo.SelectedItem = match;
     }
 
-    // ============ account / sign-in ============
+    // ============ API key ============
 
-    private void OnSessionChanged(object? sender, EventArgs e)
+    private void OnApiKeyChanged(object? sender, EventArgs e)
     {
-        // SessionManager.Changed can fire off the UI thread (sign-out completes on a pool thread).
-        if (!Dispatcher.CheckAccess())
-        {
-            Dispatcher.Invoke(RefreshAccountUi);
-            return;
-        }
-        RefreshAccountUi();
+        if (!Dispatcher.CheckAccess()) { Dispatcher.Invoke(RefreshApiKeyUi); return; }
+        RefreshApiKeyUi();
     }
 
-    private void RefreshAccountUi()
+    private void RefreshApiKeyUi()
     {
-        // No auth configured (local-only build): hide the controls, show the note.
-        if (_sessions is null)
+        var key = _apiKeys.Get();
+        if (string.IsNullOrEmpty(key))
         {
-            AccountStatusText.Text = "Local mode";
-            AccountStatusDetail.Text = "This build transcribes on your device — no account needed.";
-            SignInButton.Visibility = Visibility.Collapsed;
-            SignOutButton.Visibility = Visibility.Collapsed;
-            PlanCard.Visibility = Visibility.Collapsed;
-            AccountUnavailableText.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        if (_sessions.IsSignedIn)
-        {
-            AccountStatusText.Text = string.IsNullOrEmpty(_sessions.Email)
-                ? "Signed in"
-                : $"Signed in as {_sessions.Email}";
-            AccountStatusDetail.Text = "VoxGen is using managed cloud transcription.";
-            SignInButton.Visibility = Visibility.Collapsed;
-            SignOutButton.Visibility = Visibility.Visible;
-
-            // Show the plan card and fetch the real trial/subscription status.
-            PlanCard.Visibility = Visibility.Visible;
-            PlanText.Text = "Plan";
-            PlanDetail.Text = "Checking…";
-            UpgradeButton.Visibility = Visibility.Visible;
-            ManageBillingButton.Visibility = Visibility.Collapsed;
-            _ = LoadLicenseAsync();
+            ApiKeyStatusText.Text = "No key saved";
+            ApiKeyStatusDetail.Text = "Dictation needs a Groq API key. Groq has a free tier.";
+            RemoveApiKeyButton.Visibility = Visibility.Collapsed;
         }
         else
         {
-            AccountStatusText.Text = "Not signed in";
-            AccountStatusDetail.Text = "Sign in to use VoxGen's managed transcription.";
-            SignInButton.Visibility = Visibility.Visible;
-            SignOutButton.Visibility = Visibility.Collapsed;
-            PlanCard.Visibility = Visibility.Collapsed;
+            ApiKeyStatusText.Text = $"Key saved ({ApiKeyStore.Mask(key)})";
+            ApiKeyStatusDetail.Text = "Paste a new key below to replace it.";
+            RemoveApiKeyButton.Visibility = Visibility.Visible;
         }
     }
 
-    private async Task LoadLicenseAsync()
+    private void ShowApiKeyResult(string message)
     {
-        if (_getLicenseStatus is null)
+        ApiKeyResultText.Text = message;
+        ApiKeyResultText.Visibility = Visibility.Visible;
+    }
+
+    private void OnApiKeyBoxKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter) OnSaveApiKeyClick(sender, e);
+    }
+
+    private async void OnSaveApiKeyClick(object sender, RoutedEventArgs e)
+    {
+        var key = ApiKeyBox.Password.Trim();
+        if (key.Length == 0)
         {
-            PlanCard.Visibility = Visibility.Collapsed;
+            ShowApiKeyResult("Paste your Groq API key first.");
             return;
         }
 
-        LicenseStatus? status = null;
+        try
+        {
+            _apiKeys.Save(key);
+            ApiKeyBox.Clear();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Failed to save API key", new() { ["error"] = ex.Message });
+            ShowApiKeyResult($"Couldn't save the key: {ex.Message}");
+            return;
+        }
+
+        ShowApiKeyResult("Saved. Checking it with Groqâ€¦");
+        await TestKeyAsync(key);
+    }
+
+    private async void OnTestApiKeyClick(object sender, RoutedEventArgs e)
+    {
+        var key = ApiKeyBox.Password.Trim();
+        if (key.Length == 0) key = _apiKeys.Get() ?? string.Empty;
+        if (key.Length == 0)
+        {
+            ShowApiKeyResult("No key to test. Paste one above.");
+            return;
+        }
+        ShowApiKeyResult("Checking with Groqâ€¦");
+        await TestKeyAsync(key);
+    }
+
+    private async Task TestKeyAsync(string key)
+    {
+        TestApiKeyButton.IsEnabled = false;
+        SaveApiKeyButton.IsEnabled = false;
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            status = await _getLicenseStatus(cts.Token);
+            await GroqWhisperProvider.VerifyKeyAsync(_groqHttp, key, cts.Token);
+            ShowApiKeyResult("Key works. You're ready to dictate.");
+        }
+        catch (InvalidApiKeyException)
+        {
+            ShowApiKeyResult("Groq rejected this key. Check it at console.groq.com/keys.");
         }
         catch (Exception ex)
         {
-            _logger.Warning("License status fetch failed", new() { ["error"] = ex.Message });
-        }
-
-        if (!Dispatcher.CheckAccess())
-        {
-            Dispatcher.Invoke(() => ApplyLicenseToUi(status));
-            return;
-        }
-        ApplyLicenseToUi(status);
-    }
-
-    private void ApplyLicenseToUi(LicenseStatus? status)
-    {
-        // Guard: the user may have signed out while the fetch was in flight.
-        if (_sessions is null || !_sessions.IsSignedIn)
-        {
-            PlanCard.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        PlanCard.Visibility = Visibility.Visible;
-
-        if (status is null)
-        {
-            PlanText.Text = "Plan";
-            PlanDetail.Text = "Couldn't check your plan right now — you can still upgrade.";
-            UpgradeButton.Visibility = Visibility.Visible;
-            ManageBillingButton.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        switch (status.State)
-        {
-            case LicenseState.Trial:
-                PlanText.Text = "Free Trial";
-                PlanDetail.Text = status.TrialDaysLeft > 0
-                    ? $"{status.TrialDaysLeft} day{(status.TrialDaysLeft == 1 ? "" : "s")} left — upgrade anytime."
-                    : "Trial ending today — upgrade to keep dictating.";
-                UpgradeButton.Visibility = Visibility.Visible;
-                ManageBillingButton.Visibility = Visibility.Collapsed;
-                break;
-
-            case LicenseState.Active:
-                PlanText.Text = string.IsNullOrWhiteSpace(status.PlanName) ? "Active" : status.PlanName;
-                PlanDetail.Text = "Your subscription is active.";
-                UpgradeButton.Visibility = Visibility.Collapsed;
-                ManageBillingButton.Visibility = Visibility.Visible;
-                break;
-
-            default: // Expired / NotActivated
-                PlanText.Text = status.State == LicenseState.Expired ? "Plan expired" : "No active plan";
-                PlanDetail.Text = "Upgrade to keep using VoxGen's cloud transcription.";
-                UpgradeButton.Visibility = Visibility.Visible;
-                ManageBillingButton.Visibility = Visibility.Visible;
-                break;
-        }
-    }
-
-    private void OnUpgradeClick(object sender, RoutedEventArgs e) => OpenWebsite("/#pricing");
-
-    private void OnManageBillingClick(object sender, RoutedEventArgs e) => OpenWebsite("/account.html");
-
-    /// <summary>Open a page on the VoxGen website (shares the backend domain) in the default browser.</summary>
-    private void OpenWebsite(string path)
-    {
-        try
-        {
-            var baseUrl = BackendConfig.VoxGenBackendBaseUrl?.TrimEnd('/');
-            if (string.IsNullOrEmpty(baseUrl) || baseUrl == "REPLACE_AT_BUILD") return;
-            Process.Start(new ProcessStartInfo { FileName = baseUrl + path, UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("Failed to open website", new() { ["error"] = ex.Message, ["path"] = path });
-        }
-    }
-
-    private void OnAccountSignInClick(object sender, RoutedEventArgs e)
-    {
-        if (_sessions is null || _accountBusy) return;
-        try
-        {
-            var window = new SignInWindow(_sessions, _logger) { Owner = this };
-            window.ShowDialog();
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("Failed to open sign-in window", new() { ["error"] = ex.Message });
-        }
-        RefreshAccountUi(); // SignInWindow also fires Changed, but refresh defensively.
-    }
-
-    private void OnAccountSignOutClick(object sender, RoutedEventArgs e)
-    {
-        if (_sessions is null || _accountBusy) return;
-        _ = SignOutAsync();
-    }
-
-    private async Task SignOutAsync()
-    {
-        _accountBusy = true;
-        SignOutButton.IsEnabled = false;
-        try
-        {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            await _sessions!.SignOutAsync(cts.Token);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("Sign-out failed", new() { ["error"] = ex.Message });
+            ShowApiKeyResult($"Couldn't reach Groq to check the key: {ex.Message}");
         }
         finally
         {
-            _accountBusy = false;
-            SignOutButton.IsEnabled = true;
-            RefreshAccountUi();
+            TestApiKeyButton.IsEnabled = true;
+            SaveApiKeyButton.IsEnabled = true;
         }
+    }
+
+    private void OnRemoveApiKeyClick(object sender, RoutedEventArgs e)
+    {
+        _apiKeys.Clear();
+        ShowApiKeyResult("Key removed from this PC.");
+    }
+
+    private void OnHyperlinkNavigate(object sender, RequestNavigateEventArgs e)
+    {
+        OpenShell(e.Uri.AbsoluteUri);
+        e.Handled = true;
+    }
+
+    // ============ history ============
+
+    private sealed record HistoryRow(HistoryEntry Entry, string When, string Text, string? AudioPath)
+    {
+        public Visibility CopyVisibility => string.IsNullOrEmpty(Entry.Text) ? Visibility.Collapsed : Visibility.Visible;
+        public Visibility PlayVisibility => AudioPath is not null && File.Exists(AudioPath) ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnHistoryChanged(object? sender, EventArgs e)
+    {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(RefreshHistory); return; }
+        RefreshHistory();
+    }
+
+    private void RefreshHistory()
+    {
+        var rows = _history.LoadRecent(100).Select(e => new HistoryRow(
+            e,
+            e.TimestampUtc.ToLocalTime().ToString("MMM d, h:mm tt"),
+            string.IsNullOrEmpty(e.Text) ? "(recording only)" : e.Text,
+            _history.AudioPath(e))).ToList();
+        HistoryList.ItemsSource = rows;
+        HistoryEmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ConfirmClearButton.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnSaveTextToggleClick(object sender, RoutedEventArgs e)
+    {
+        if (_suppress) return;
+        var requested = SaveTextToggle.IsChecked == true;
+        if (!_settings.TryUpdate(c => c with { SaveTextHistoryLocal = requested }, out var error))
+        {
+            ReportSaveFailure("save transcripts", error);
+        }
+    }
+
+    private void OnSaveAudioToggleClick(object sender, RoutedEventArgs e)
+    {
+        if (_suppress) return;
+        var requested = SaveAudioToggle.IsChecked == true;
+        if (!_settings.TryUpdate(c => c with { SaveAudioHistoryLocal = requested }, out var error))
+        {
+            ReportSaveFailure("save recordings", error);
+        }
+    }
+
+    private void OnHistoryCopyClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not HistoryRow row) return;
+        try { System.Windows.Clipboard.SetText(row.Entry.Text); }
+        catch (Exception ex) { _logger.Warning("Copy from history failed", new() { ["error"] = ex.Message }); }
+    }
+
+    private void OnHistoryPlayClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is HistoryRow { AudioPath: { } path }) OpenShell(path);
+    }
+
+    private void OnOpenRecordingsClick(object sender, RoutedEventArgs e)
+    {
+        Directory.CreateDirectory(_history.RecordingsDirectory);
+        OpenShell(_history.RecordingsDirectory);
+    }
+
+    // Two-step clear instead of a modal confirm: first click reveals the destructive button.
+    private void OnClearHistoryClick(object sender, RoutedEventArgs e) =>
+        ConfirmClearButton.Visibility = ConfirmClearButton.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
+    private void OnConfirmClearClick(object sender, RoutedEventArgs e) => _history.Clear();
+
+    // ============ updates ============
+
+    private async void OnCheckUpdateClick(object sender, RoutedEventArgs e)
+    {
+        CheckUpdateButton.IsEnabled = false;
+        UpdateStatusText.Text = "Checking GitHubâ€¦";
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            ShowUpdate(await _updates.CheckAsync(cts.Token));
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning("Update check failed", new() { ["error"] = ex.Message });
+            UpdateStatusText.Text = "Couldn't check for updates. Try again later.";
+        }
+        finally
+        {
+            CheckUpdateButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>Called by App when a background check finds a newer release.</summary>
+    public void ShowUpdate(UpdateInfo? update)
+    {
+        _pendingUpdate = update;
+        if (update is null)
+        {
+            UpdateStatusText.Text = "You're on the latest version.";
+            InstallUpdateButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+        UpdateStatusText.Text = _updates.CanSelfUpdate
+            ? $"Version {update.Version.ToString(3)} is available."
+            : $"Version {update.Version.ToString(3)} is available (dev build can't self-update).";
+        InstallUpdateButton.Visibility = _updates.CanSelfUpdate ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void OnInstallUpdateClick(object sender, RoutedEventArgs e)
+    {
+        if (_pendingUpdate is null) return;
+        InstallUpdateButton.IsEnabled = false;
+        CheckUpdateButton.IsEnabled = false;
+        var progress = new Progress<double>(p => UpdateStatusText.Text = $"Downloadingâ€¦ {p:P0}");
+        try
+        {
+            if (await _updates.DownloadAndApplyAsync(_pendingUpdate, progress, CancellationToken.None))
+            {
+                UpdateStatusText.Text = "Restartingâ€¦";
+                _shutdownForUpdate();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Update failed", new() { ["error"] = ex.Message });
+            UpdateStatusText.Text = $"Update failed: {ex.Message}";
+            InstallUpdateButton.IsEnabled = true;
+            CheckUpdateButton.IsEnabled = true;
+        }
+    }
+
+    private void OpenShell(string target)
+    {
+        try { Process.Start(new ProcessStartInfo { FileName = target, UseShellExecute = true }); }
+        catch (Exception ex) { _logger.Error("Failed to open", new() { ["target"] = target, ["error"] = ex.Message }); }
     }
 
     // ============ control handlers ============
@@ -359,7 +448,7 @@ public partial class SettingsWindow : Window
     private void OnHotkeyRecordClick(object sender, RoutedEventArgs e)
     {
         _recordingHotkey = true;
-        HotkeyDisplay.Text = "Press keys…";
+        HotkeyDisplay.Text = "Press keysâ€¦";
         HotkeyRecordButton.IsEnabled = false;
     }
 
@@ -377,7 +466,7 @@ public partial class SettingsWindow : Window
         }
 
         var candidate = BuildHotkeyString(key, Keyboard.Modifiers);
-        if (candidate is null) return; // a modifier on its own with more to come — keep waiting
+        if (candidate is null) return; // a modifier on its own with more to come â€” keep waiting
 
         // Only accept combinations the parser round-trips (keeps unsupported keys out of settings).
         try { _ = HotkeyDefinition.Parse(candidate); }
@@ -407,7 +496,7 @@ public partial class SettingsWindow : Window
     /// <summary>Maps a WPF key + modifiers to the string form <see cref="HotkeyDefinition"/> parses.</summary>
     private static string? BuildHotkeyString(Key key, ModifierKeys mods)
     {
-        // Bare modifier → a modifier-only hotkey (e.g. RightAlt).
+        // Bare modifier â†’ a modifier-only hotkey (e.g. RightAlt).
         switch (key)
         {
             case Key.LeftAlt: return "LeftAlt";
@@ -440,16 +529,19 @@ public partial class SettingsWindow : Window
             MessageBoxImage.Warning);
     }
 
+
     // ============ sidebar nav ============
 
     private void OnNavGeneralClick(object sender, RoutedEventArgs e) => ShowSection("General");
-    private void OnNavAccountClick(object sender, RoutedEventArgs e) => ShowSection("Account");
+    private void OnNavApiKeyClick(object sender, RoutedEventArgs e) => ShowSection("ApiKey");
+    private void OnNavHistoryClick(object sender, RoutedEventArgs e) { RefreshHistory(); ShowSection("History"); }
     private void OnNavAboutClick(object sender, RoutedEventArgs e) => ShowSection("About");
 
     private void ShowSection(string name)
     {
         GeneralPanel.Visibility = name == "General" ? Visibility.Visible : Visibility.Collapsed;
-        AccountPanel.Visibility = name == "Account" ? Visibility.Visible : Visibility.Collapsed;
+        ApiKeyPanel.Visibility = name == "ApiKey" ? Visibility.Visible : Visibility.Collapsed;
+        HistoryPanel.Visibility = name == "History" ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility = name == "About" ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -464,12 +556,13 @@ public partial class SettingsWindow : Window
         Hide();
     }
 
-    /// <summary>Closes for real — called from <c>App.OnExit</c> so the Changed subscription is released.</summary>
+    /// <summary>Closes for real â€” called from <c>App.OnExit</c> so event subscriptions are released.</summary>
     public void ForceClose()
     {
         _forceClosing = true;
         _settings.Changed -= OnSettingsChanged;
-        if (_sessions is not null) _sessions.Changed -= OnSessionChanged;
+        _apiKeys.Changed -= OnApiKeyChanged;
+        _history.Changed -= OnHistoryChanged;
         Close();
     }
 }

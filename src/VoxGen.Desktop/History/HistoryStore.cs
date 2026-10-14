@@ -134,6 +134,57 @@ public sealed class HistoryStore
     public string? AudioPath(HistoryEntry entry) =>
         entry.AudioFile is null ? null : Path.Combine(_recordingsDirectory, entry.AudioFile);
 
+    /// <summary>
+    /// Removes one entry (and its recording). Rewrites history.jsonl via a temp file so a crash
+    /// mid-write can't lose the other entries. Returns false if the entry wasn't found or the
+    /// rewrite failed.
+    /// </summary>
+    public bool Delete(string id)
+    {
+        var removed = false;
+        lock (_ioLock)
+        {
+            if (!File.Exists(_historyFile)) return false;
+            try
+            {
+                var kept = new List<string>();
+                string? audioFile = null;
+                foreach (var line in File.ReadLines(_historyFile))
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    HistoryEntry? e = null;
+                    try { e = JsonSerializer.Deserialize<HistoryEntry>(line, JsonOptions); }
+                    catch (JsonException) { /* keep torn lines out of the rewrite */ continue; }
+                    if (e is not null && e.Id == id)
+                    {
+                        removed = true;
+                        audioFile = e.AudioFile;
+                        continue;
+                    }
+                    kept.Add(line);
+                }
+                if (!removed) return false;
+
+                var tempPath = _historyFile + ".tmp";
+                File.WriteAllLines(tempPath, kept);
+                File.Replace(tempPath, _historyFile, destinationBackupFileName: null);
+
+                if (audioFile is not null)
+                {
+                    try { File.Delete(Path.Combine(_recordingsDirectory, audioFile)); }
+                    catch (Exception ex) { _logger.Warning("Failed to delete recording", new() { ["error"] = ex.Message }); }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error("Failed to delete history entry", new() { ["id"] = id, ["error"] = ex.Message });
+                return false;
+            }
+        }
+        Changed?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
     /// <summary>Deletes the history file and every saved recording.</summary>
     public void Clear()
     {

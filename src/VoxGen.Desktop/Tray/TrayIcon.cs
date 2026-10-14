@@ -27,6 +27,7 @@ public sealed class TrayIcon : IDisposable
     private bool _disposed;
 
     public event EventHandler? ShowSettingsRequested;
+    public event EventHandler? ShowHistoryRequested;
     public event EventHandler? PauseToggleRequested;
     public event EventHandler? QuitRequested;
 
@@ -41,6 +42,9 @@ public sealed class TrayIcon : IDisposable
         var openItem = new WinForms.ToolStripMenuItem("Open Settings");
         openItem.Click += (_, _) => ShowSettingsRequested?.Invoke(this, EventArgs.Empty);
 
+        var historyItem = new WinForms.ToolStripMenuItem("History");
+        historyItem.Click += (_, _) => ShowHistoryRequested?.Invoke(this, EventArgs.Empty);
+
         _pauseItem = new WinForms.ToolStripMenuItem(_state.PauseResumeLabel) { CheckOnClick = false };
         _pauseItem.Click += (_, _) =>
         {
@@ -52,6 +56,7 @@ public sealed class TrayIcon : IDisposable
         var quitItem = new WinForms.ToolStripMenuItem("Quit");
         quitItem.Click += (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty);
 
+        menu.Items.Add(historyItem);
         menu.Items.Add(openItem);
         menu.Items.Add(_pauseItem);
         menu.Items.Add(new WinForms.ToolStripSeparator());

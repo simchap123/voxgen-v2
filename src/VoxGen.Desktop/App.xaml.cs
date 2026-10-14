@@ -24,7 +24,7 @@ public partial class App : Application
     private const string SingletonMutexName = @"Global\VoxGen-Desktop-Singleton-{D8F2E5F4-8A4F-4B1B-A7D6-9B5E2C3D1F4A}";
 
     /// <summary>Single source for the display version (logs + uninstall registry entry).</summary>
-    private const string AppVersion = "2.1.0";
+    private const string AppVersion = "2.1.1";
 
     private Mutex? _singletonMutex;
     private bool _ownsMutex;
@@ -133,6 +133,7 @@ public partial class App : Application
         {
             ShowSettings(null);
         };
+        _tray.ShowHistoryRequested += (_, _) => ShowSettings("History");
         _tray.PauseToggleRequested += (_, _) =>
         {
             _isPaused = _tray!.IsPaused;

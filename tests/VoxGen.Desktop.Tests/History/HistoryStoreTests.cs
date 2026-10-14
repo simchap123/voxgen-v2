@@ -60,6 +60,24 @@ public sealed class HistoryStoreTests : IDisposable
     }
 
     [Fact]
+    public void Delete_RemovesOnlyThatEntryAndItsRecording()
+    {
+        var store = Make();
+        var keep = store.Add("keep me", null, TimeSpan.Zero, new byte[] { 1 }, saveText: true)!;
+        System.Threading.Thread.Sleep(5);
+        var drop = store.Add("delete me", null, TimeSpan.Zero, new byte[] { 2 }, saveText: true)!;
+        var dropAudio = store.AudioPath(drop)!;
+
+        Assert.True(store.Delete(drop.Id));
+
+        var left = Assert.Single(Make().LoadRecent());
+        Assert.Equal(keep.Id, left.Id);
+        Assert.False(File.Exists(dropAudio));
+        Assert.True(File.Exists(store.AudioPath(keep)));
+        Assert.False(store.Delete("no-such-id"));
+    }
+
+    [Fact]
     public void Clear_RemovesEntriesAndRecordings()
     {
         var store = Make();

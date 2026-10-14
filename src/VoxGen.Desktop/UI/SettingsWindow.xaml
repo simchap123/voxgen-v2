@@ -270,7 +270,7 @@
           <TextBlock Text="History"
                      Style="{DynamicResource TitleTextStyle}"
                      Margin="0,0,0,4" />
-          <TextBlock Text="Everything is saved on this PC only."
+          <TextBlock Text="Your past dictations, newest first. Saved on this PC only."
                      Style="{DynamicResource MutedTextStyle}"
                      Margin="0,0,0,28" />
 
@@ -346,6 +346,9 @@
                       <Button Content="Play" Padding="10,4" Margin="6,0,0,0" Tag="{Binding}"
                               Visibility="{Binding PlayVisibility}"
                               Click="OnHistoryPlayClick" />
+                      <Button Content="Delete" Padding="10,4" Margin="6,0,0,0" Tag="{Binding}"
+                              Foreground="{DynamicResource DestructiveBrush}"
+                              Click="OnHistoryDeleteClick" />
                     </StackPanel>
                   </Grid>
                 </Border>

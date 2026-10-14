@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -95,6 +95,7 @@ public partial class SettingsWindow : Window
         NavApiKey.IsChecked = name == "ApiKey";
         NavHistory.IsChecked = name == "History";
         NavAbout.IsChecked = name == "About";
+        if (name == "History") RefreshHistory();
         ShowSection(name);
     }
 
@@ -308,13 +309,30 @@ public partial class SettingsWindow : Window
     private void OnHistoryCopyClick(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not HistoryRow row) return;
-        try { System.Windows.Clipboard.SetText(row.Entry.Text); }
+        try
+        {
+            System.Windows.Clipboard.SetText(row.Entry.Text);
+            if (sender is Button b) { b.Content = "Copied"; _ = ResetButtonLabelAsync(b, "Copy"); }
+        }
         catch (Exception ex) { _logger.Warning("Copy from history failed", new() { ["error"] = ex.Message }); }
+    }
+
+    private void OnHistoryDeleteClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not HistoryRow row) return;
+        // History.Changed fires on success and refreshes the list.
+        if (!_history.Delete(row.Entry.Id)) RefreshHistory();
     }
 
     private void OnHistoryPlayClick(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is HistoryRow { AudioPath: { } path }) OpenShell(path);
+    }
+
+    private static async Task ResetButtonLabelAsync(Button button, string label)
+    {
+        await Task.Delay(1200);
+        button.Content = label;
     }
 
     private void OnOpenRecordingsClick(object sender, RoutedEventArgs e)

@@ -52,6 +52,7 @@ public sealed class HoverReadService : IDisposable
         {
             var (x, y) = ScreenTextReader.CursorPosition();
             try { ScreenTextReader.GetTextAt(x, y); } catch { /* warm-up only */ }
+            try { _ = ScreenOcr.Available; } catch { /* warm-up only */ }
         });
         _loop ??= Task.Run(() => LoopAsync(_stop.Token));
     }
@@ -128,12 +129,39 @@ public sealed class HoverReadService : IDisposable
         }
     }
 
-    private static async Task<(bool TimedOut, string? Text)> ReadTextWithTimeoutAsync(int x, int y)
+    private async Task<(bool TimedOut, string? Text)> ReadTextWithTimeoutAsync(int x, int y)
     {
         // UIA can hang on an unresponsive app; give up rather than freeze the loop.
         var read = Task.Run(() => ScreenTextReader.GetTextAt(x, y));
         var done = await Task.WhenAny(read, Task.Delay(UiaTimeout)).ConfigureAwait(false);
-        return done == read ? (false, read.Result) : (true, null);
+        if (done != read) return (true, null);
+
+        var uia = read.Result;
+        _logger.Debug("Hover lookup", new()
+        {
+            ["x"] = x, ["y"] = y, ["source"] = uia.Source, ["weak"] = uia.Weak,
+            ["chars"] = uia.Text?.Length ?? 0,
+            ["preview"] = uia.Text is null ? null : uia.Text[..Math.Min(60, uia.Text.Length)],
+        });
+        if (uia.Text is not null && !uia.Weak) return (false, uia.Text);
+
+        // App doesn't expose its text (or only a window title): read the pixels with Windows OCR.
+        try
+        {
+            var ocr = await ScreenOcr.ReadAroundAsync(x, y).ConfigureAwait(false);
+            var cleaned = ScreenTextReader.Clean(ocr);
+            _logger.Debug("Hover OCR", new() { ["result"] = ScreenOcr.LastDiagnostics });
+            if (cleaned is not null)
+            {
+                _logger.Debug("Hover read via OCR", new() { ["chars"] = cleaned.Length });
+                return (false, cleaned);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning("OCR fallback failed", new() { ["error"] = ex.Message });
+        }
+        return (false, uia.Text);
     }
 
     public void Dispose()

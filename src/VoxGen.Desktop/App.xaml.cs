@@ -25,12 +25,12 @@ public partial class App : Application
     private const string SingletonMutexName = @"Global\VoxGen-Desktop-Singleton-{D8F2E5F4-8A4F-4B1B-A7D6-9B5E2C3D1F4A}";
 
     /// <summary>Single source for the display version (logs + uninstall registry entry).</summary>
-    private const string AppVersion = "2.2.0";
+    private const string AppVersion = "2.3.0";
 
     private Mutex? _singletonMutex;
     private bool _ownsMutex;
 
-    // Composition root. Public statics are intentionally kept thin — services
+    // Composition root. Public statics are intentionally kept thin â€” services
     // accept their dependencies via constructors; these exist only so the tray
     // event handlers and a few other places can reach the singletons.
     public static ILogger Logger { get; private set; } = null!;
@@ -63,7 +63,7 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        // Uninstall entry point: Windows "Installed apps → Uninstall" runs `VoxGen.exe --uninstall`.
+        // Uninstall entry point: Windows "Installed apps â†’ Uninstall" runs `VoxGen.exe --uninstall`.
         // Tear down (registry entry + %APPDATA%\VoxGen + self-delete) and exit before any normal
         // init, so we don't take the singleton mutex or spin up the tray.
         if (Array.Exists(e.Args, a => string.Equals(a, InstallRegistration.UninstallArg, StringComparison.OrdinalIgnoreCase)))
@@ -154,7 +154,8 @@ public partial class App : Application
     {
         _settingsWindow ??= new SettingsWindow(
             SettingsService, Logger, _deviceEnumerator!, _apiKeys!, _history!, _updates!, _groqHttp!,
-            shutdownForUpdate: () => Dispatcher.BeginInvoke(() => Shutdown()));
+            shutdownForUpdate: () => Dispatcher.BeginInvoke(() => Shutdown()),
+            previewSpeech: text => _speechPlayer?.Speak(text));
         if (section is not null) _settingsWindow.ShowSectionByName(section);
         if (!_settingsWindow.IsVisible)
         {
@@ -182,7 +183,7 @@ public partial class App : Application
         Logger.Info("Local services ready", new() { ["hasApiKey"] = _apiKeys.HasKey, ["canSelfUpdate"] = _updates.CanSelfUpdate });
     }
 
-    /// <summary>Hold Ctrl+Shift + hover → Groq reads the text under the mouse.</summary>
+    /// <summary>Hold Ctrl+Shift + hover â†’ Groq reads the text under the mouse.</summary>
     private void WireHoverRead()
     {
         var speech = new GroqSpeech(_groqHttp!, () => _apiKeys!.Get());
@@ -230,6 +231,7 @@ public partial class App : Application
         _hoverReader = new HoverReadService(
             _speechPlayer,
             enabled: () => SettingsService.Current.HoverReadEnabled && !_isPaused && _apiKeys!.HasKey,
+            shortcut: () => SettingsService.Current.HoverReadShortcut,
             Logger);
         _hoverReader.Start();
     }
@@ -260,7 +262,7 @@ public partial class App : Application
             await Dispatcher.InvokeAsync(() =>
             {
                 _settingsWindow?.ShowUpdate(update);
-                _tray?.ShowBalloon("VoxGen", $"Version {update.Version.ToString(3)} is ready. Open Settings → About and click Update now.");
+                _tray?.ShowBalloon("VoxGen", $"Version {update.Version.ToString(3)} is ready. Open Settings â†’ About and click Update now.");
             });
         }
         catch (Exception ex)
@@ -296,7 +298,7 @@ public partial class App : Application
         // MissingApiKeyException and the overlay says "Add your Groq API key in Settings".
         ITranscriptionProvider provider = _transcriber!;
 
-        // Pre-warm the selected mic so the first hotkey press starts capturing immediately (§8.4).
+        // Pre-warm the selected mic so the first hotkey press starts capturing immediately (Â§8.4).
         try
         {
             _audioCapture.Initialize(SettingsService.Current.SelectedMicrophoneId);
@@ -320,7 +322,7 @@ public partial class App : Application
         _hotkeys = new Win32HotkeyService(Logger);
 
         // The controller is the sole subscriber to the hotkey; Attach marshals pump-thread
-        // events onto the UI dispatcher and runs the record→transcribe→paste state machine.
+        // events onto the UI dispatcher and runs the recordâ†’transcribeâ†’paste state machine.
         _controller!.Attach(_hotkeys, _dispatcher!);
 
         // Fire-and-forget: registration touches Win32 internals on a dedicated thread
@@ -365,7 +367,7 @@ public partial class App : Application
     private void WireSettingsReactions()
     {
         // Settings changes (from the Settings window) flow back into the runtime here, so the
-        // window itself stays decoupled from capture/hotkey services (PRD §10 — one source of truth).
+        // window itself stays decoupled from capture/hotkey services (PRD Â§10 â€” one source of truth).
         SettingsService.Changed += (_, e) =>
         {
             if (e.Previous.SelectedMicrophoneId != e.Current.SelectedMicrophoneId
@@ -373,6 +375,11 @@ public partial class App : Application
             {
                 try { _audioCapture.Initialize(e.Current.SelectedMicrophoneId); }
                 catch (Exception ex) { Logger.Error("Microphone re-init failed", new() { ["error"] = ex.Message }); }
+            }
+
+            if (Math.Abs(e.Previous.HoverReadRate - e.Current.HoverReadRate) > 0.001)
+            {
+                _speechPlayer?.SetRate(e.Current.HoverReadRate);
             }
 
             if (e.Previous.HotkeyValue != e.Current.HotkeyValue || e.Previous.HotkeyMode != e.Current.HotkeyMode)
@@ -426,7 +433,7 @@ public partial class App : Application
         if (_ownsMutex)
         {
             try { _singletonMutex?.ReleaseMutex(); }
-            catch (ApplicationException) { /* not owned — ignore */ }
+            catch (ApplicationException) { /* not owned â€” ignore */ }
         }
         _singletonMutex?.Dispose();
         base.OnExit(e);

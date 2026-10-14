@@ -45,7 +45,40 @@ public sealed class GroqSpeech
 
         using var response = await GroqWhisperProvider.SendAsync(_http, req, ct).ConfigureAwait(false);
         await GroqWhisperProvider.EnsureSuccessAsync(response, ct).ConfigureAwait(false);
-        return await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+        var wav = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+        return FixStreamingWavHeader(wav);
+    }
+
+    /// <summary>
+    /// Groq streams its WAV, so the RIFF and data chunk sizes are the 0xFFFFFFFF "unknown" placeholder,
+    /// which NAudio's WaveFileReader rejects. Rewrite both to the real lengths. Patches in place and
+    /// returns the same array; leaves anything that isn't a RIFF/WAVE file untouched.
+    /// </summary>
+    public static byte[] FixStreamingWavHeader(byte[] wav)
+    {
+        if (wav.Length < 12 || wav[0] != 'R' || wav[1] != 'I' || wav[2] != 'F' || wav[3] != 'F'
+            || wav[8] != 'W' || wav[9] != 'A' || wav[10] != 'V' || wav[11] != 'E')
+        {
+            return wav;
+        }
+
+        BitConverter.TryWriteBytes(wav.AsSpan(4, 4), (uint)(wav.Length - 8));
+
+        var pos = 12;
+        while (pos + 8 <= wav.Length)
+        {
+            var size = BitConverter.ToUInt32(wav, pos + 4);
+            var isData = wav[pos] == 'd' && wav[pos + 1] == 'a' && wav[pos + 2] == 't' && wav[pos + 3] == 'a';
+            var available = (uint)(wav.Length - (pos + 8));
+            if (isData)
+            {
+                if (size > available) BitConverter.TryWriteBytes(wav.AsSpan(pos + 4, 4), available);
+                break;
+            }
+            if (size > available) break; // malformed non-data chunk — leave as is
+            pos += 8 + (int)size + (int)(size & 1); // chunks are word-aligned
+        }
+        return wav;
     }
 
     /// <summary>

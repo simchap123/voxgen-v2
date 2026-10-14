@@ -19,7 +19,8 @@ public sealed class HoverReadService : IDisposable
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(60);
     private static readonly TimeSpan DwellTime = TimeSpan.FromMilliseconds(350);
-    private static readonly TimeSpan UiaTimeout = TimeSpan.FromSeconds(2);
+    // First UI Automation call in a process can take several seconds (COM/provider spin-up).
+    private static readonly TimeSpan UiaTimeout = TimeSpan.FromSeconds(4);
     private const int MoveTolerancePx = 6;
 
     private const int VK_SHIFT = 0x10;
@@ -31,23 +32,36 @@ public sealed class HoverReadService : IDisposable
 
     private readonly SpeechPlayer _player;
     private readonly Func<bool> _enabled;
+    private readonly Func<string> _shortcut;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _stop = new();
     private Task? _loop;
 
-    public HoverReadService(SpeechPlayer player, Func<bool> enabled, ILogger logger)
+    public HoverReadService(SpeechPlayer player, Func<bool> enabled, Func<string> shortcut, ILogger logger)
     {
+        _shortcut = shortcut ?? throw new ArgumentNullException(nameof(shortcut));
         _player = player ?? throw new ArgumentNullException(nameof(player));
         _enabled = enabled ?? throw new ArgumentNullException(nameof(enabled));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public void Start() => _loop ??= Task.Run(() => LoopAsync(_stop.Token));
+    public void Start()
+    {
+        // Warm up UI Automation so the first real hover answers quickly instead of timing out.
+        _ = Task.Run(() =>
+        {
+            var (x, y) = ScreenTextReader.CursorPosition();
+            try { ScreenTextReader.GetTextAt(x, y); } catch { /* warm-up only */ }
+        });
+        _loop ??= Task.Run(() => LoopAsync(_stop.Token));
+    }
 
     private static bool IsDown(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
 
-    /// <summary>Ctrl+Shift held, Alt not (so Ctrl+Shift+Alt shortcuts don't trigger reading).</summary>
-    private static bool TriggerHeld() => IsDown(VK_CONTROL) && IsDown(VK_SHIFT) && !IsDown(VK_MENU);
+    /// <summary>The configured pair held and the third modifier not (so 3-key shortcuts don't trigger reading).</summary>
+    private bool TriggerHeld() => _shortcut() == "CtrlAlt"
+        ? IsDown(VK_CONTROL) && IsDown(VK_MENU) && !IsDown(VK_SHIFT)
+        : IsDown(VK_CONTROL) && IsDown(VK_SHIFT) && !IsDown(VK_MENU);
 
     private async Task LoopAsync(CancellationToken ct)
     {
@@ -89,7 +103,15 @@ public sealed class HoverReadService : IDisposable
                 if (readHere || DateTime.UtcNow - restingSince < DwellTime) continue;
                 readHere = true;
 
-                var text = await ReadTextWithTimeoutAsync(pos.X, pos.Y).ConfigureAwait(false);
+                var (timedOut, text) = await ReadTextWithTimeoutAsync(pos.X, pos.Y).ConfigureAwait(false);
+                if (timedOut)
+                {
+                    // Slow target app: try again on the next poll while the keys are still held.
+                    readHere = false;
+                    restingSince = DateTime.UtcNow;
+                    _logger.Debug("Hover read: text lookup timed out; retrying");
+                    continue;
+                }
                 if (text is null || text == lastSpoken) continue;
 
                 lastSpoken = text;
@@ -106,12 +128,12 @@ public sealed class HoverReadService : IDisposable
         }
     }
 
-    private static async Task<string?> ReadTextWithTimeoutAsync(int x, int y)
+    private static async Task<(bool TimedOut, string? Text)> ReadTextWithTimeoutAsync(int x, int y)
     {
         // UIA can hang on an unresponsive app; give up rather than freeze the loop.
         var read = Task.Run(() => ScreenTextReader.GetTextAt(x, y));
         var done = await Task.WhenAny(read, Task.Delay(UiaTimeout)).ConfigureAwait(false);
-        return done == read ? read.Result : null;
+        return done == read ? (false, read.Result) : (true, null);
     }
 
     public void Dispose()

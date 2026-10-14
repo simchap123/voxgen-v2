@@ -65,6 +65,11 @@
                      GroupName="SettingsSection"
                      Content="API key"
                      Click="OnNavApiKeyClick" />
+        <RadioButton x:Name="NavReadAloud"
+                     Style="{DynamicResource SidebarNavItemStyle}"
+                     GroupName="SettingsSection"
+                     Content="Read aloud"
+                     Click="OnNavReadAloudClick" />
         <RadioButton x:Name="NavHistory"
                      Style="{DynamicResource SidebarNavItemStyle}"
                      GroupName="SettingsSection"
@@ -128,30 +133,6 @@
                       Grid.Column="1"
                       VerticalAlignment="Center"
                       Click="OnLiveTypingToggleClick" />
-          </Grid>
-
-          <!-- Read aloud on hover. Hold Ctrl+Shift and rest the mouse on anything. -->
-          <Grid Margin="0,0,0,16">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0" Margin="0,0,16,0">
-              <TextBlock Text="Read aloud on hover" FontWeight="SemiBold" Margin="0,0,0,2" />
-              <TextBlock Text="Hold Ctrl+Shift and rest the mouse on anything to hear it read. Select text first to read all of it. A small bar lets you slow down, speed up, pause, stop or copy. Uses your Groq key."
-                         Style="{DynamicResource MutedTextStyle}"
-                         TextWrapping="Wrap" />
-            </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-              <ComboBox x:Name="VoiceCombo"
-                        Width="110"
-                        Margin="0,0,12,0"
-                        VerticalAlignment="Center"
-                        SelectionChanged="OnVoiceChanged" />
-              <CheckBox x:Name="HoverReadToggle"
-                        VerticalAlignment="Center"
-                        Click="OnHoverReadToggleClick" />
-            </StackPanel>
           </Grid>
 
           <!-- Microphone picker. Persists SelectedMicrophoneId (authoritative) + name (display)
@@ -287,6 +268,113 @@
             <Hyperlink NavigateUri="https://console.groq.com/keys" RequestNavigate="OnHyperlinkNavigate">console.groq.com/keys</Hyperlink>
             <Run Text=". The key is encrypted with your Windows account and stored only on this PC." />
           </TextBlock>
+        </StackPanel>
+
+        <!-- Read aloud -->
+        <StackPanel x:Name="ReadAloudPanel" Visibility="Collapsed">
+          <TextBlock Text="Read aloud"
+                     Style="{DynamicResource TitleTextStyle}"
+                     Margin="0,0,0,4" />
+          <TextBlock Text="Hear any text on screen in a Groq voice."
+                     Style="{DynamicResource MutedTextStyle}"
+                     Margin="0,0,0,20" />
+
+          <Border Background="{DynamicResource AccentBrush}"
+                  CornerRadius="8"
+                  Padding="16,12"
+                  Margin="0,0,0,24">
+            <StackPanel>
+              <TextBlock Text="How to use it" FontWeight="SemiBold" Margin="0,0,0,6"
+                         Foreground="{DynamicResource ForegroundBrush}" />
+              <TextBlock x:Name="ReadAloudHowTo"
+                         TextWrapping="Wrap"
+                         Foreground="{DynamicResource ForegroundBrush}"
+                         Text="1. Hold Ctrl+Shift.  2. Point at any text and keep the mouse still for half a second.  3. Let go — it keeps reading. To read a whole section, select it first, then point at it. A small bar at the bottom lets you slow down, speed up, pause, stop or copy." />
+            </StackPanel>
+          </Border>
+
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="Read aloud on hover" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="Turn the feature on or off."
+                         Style="{DynamicResource MutedTextStyle}" />
+            </StackPanel>
+            <CheckBox x:Name="HoverReadToggle"
+                      Grid.Column="1"
+                      VerticalAlignment="Center"
+                      Click="OnHoverReadToggleClick" />
+          </Grid>
+
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="Shortcut" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="The keys you hold while pointing."
+                         Style="{DynamicResource MutedTextStyle}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+              <RadioButton x:Name="ShortcutCtrlShift" GroupName="ReadShortcut" Content="Ctrl+Shift"
+                           Margin="0,0,14,0" VerticalAlignment="Center" Click="OnShortcutChanged" />
+              <RadioButton x:Name="ShortcutCtrlAlt" GroupName="ReadShortcut" Content="Ctrl+Alt"
+                           VerticalAlignment="Center" Click="OnShortcutChanged" />
+            </StackPanel>
+          </Grid>
+
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="Voice" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="Hannah, Autumn and Diana are female; Troy, Austin and Daniel are male."
+                         Style="{DynamicResource MutedTextStyle}"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+              <ComboBox x:Name="VoiceCombo"
+                        Width="120"
+                        VerticalAlignment="Center"
+                        SelectionChanged="OnVoiceChanged" />
+              <Button Content="Preview"
+                      Padding="12,5"
+                      Margin="8,0,0,0"
+                      Click="OnPreviewVoiceClick" />
+            </StackPanel>
+          </Grid>
+
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="Speed" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="Also adjustable live from the bar while it reads."
+                         Style="{DynamicResource MutedTextStyle}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+              <Slider x:Name="SpeedSlider"
+                      Width="180"
+                      Minimum="0.5" Maximum="2.5"
+                      TickFrequency="0.25" IsSnapToTickEnabled="True"
+                      VerticalAlignment="Center"
+                      ValueChanged="OnSpeedChanged" />
+              <TextBlock x:Name="SpeedLabel"
+                         Text="1×"
+                         MinWidth="40"
+                         Margin="10,0,0,0"
+                         FontWeight="SemiBold"
+                         VerticalAlignment="Center" />
+            </StackPanel>
+          </Grid>
         </StackPanel>
 
         <!-- History -->

@@ -22,6 +22,11 @@ public partial class ReadAloudBar : Window
     [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hwnd, int index);
     [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hwnd, int index, int value);
 
+    private static readonly Geometry PauseGlyph = Geometry.Parse("M1,0 H4 V10 H1 Z M6,0 H9 V10 H6 Z");
+    private static readonly Geometry PlayGlyph = Geometry.Parse("M1,0 L10,5 L1,10 Z");
+    private static readonly Geometry CopyGlyph = Geometry.Parse("M3.5,0.5 H10.5 V7.5 H3.5 Z M0.5,3.5 V10.5 H7.5");
+    private static readonly Geometry CheckGlyph = Geometry.Parse("M0.5,5.5 L4,9 L10.5,1.5");
+
     private readonly SpeechPlayer _player;
     private readonly Action<double> _persistRate;
     private readonly DispatcherTimer _hideTimer = new() { Interval = TimeSpan.FromSeconds(4) };
@@ -49,7 +54,7 @@ public partial class ReadAloudBar : Window
         {
             case SpeechState.Idle:
                 StatusDot.Opacity = 0.3;
-                PauseButton.Content = ""; // play
+                PauseIcon.Data = PlayGlyph;
                 PauseButton.ToolTip = "Play";
                 _hideTimer.Stop();
                 _hideTimer.Start();
@@ -59,12 +64,12 @@ public partial class ReadAloudBar : Window
                 break;
             case SpeechState.Playing:
                 StatusDot.Opacity = 1;
-                PauseButton.Content = ""; // pause
+                PauseIcon.Data = PauseGlyph;
                 PauseButton.ToolTip = "Pause";
                 break;
             case SpeechState.Paused:
                 StatusDot.Opacity = 0.6;
-                PauseButton.Content = "";
+                PauseIcon.Data = PlayGlyph;
                 PauseButton.ToolTip = "Resume";
                 break;
         }
@@ -113,9 +118,9 @@ public partial class ReadAloudBar : Window
         try
         {
             System.Windows.Clipboard.SetText(text);
-            CopyButton.Content = ""; // check mark
+            CopyIcon.Data = CheckGlyph;
             await Task.Delay(1200);
-            CopyButton.Content = "";
+            CopyIcon.Data = CopyGlyph;
         }
         catch
         {

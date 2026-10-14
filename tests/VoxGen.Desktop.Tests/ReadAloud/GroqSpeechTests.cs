@@ -75,6 +75,26 @@ public class GroqSpeechTests
     }
 
     [Fact]
+    public void FixStreamingWavHeader_MakesGroqStyleWavReadable()
+    {
+        // Same shape Groq returns: RIFF/data sizes = 0xFFFFFFFF, plus a LIST chunk before data.
+        var ms = new System.IO.MemoryStream();
+        var w = new System.IO.BinaryWriter(ms);
+        w.Write("RIFF"u8.ToArray()); w.Write(0xFFFFFFFFu); w.Write("WAVE"u8.ToArray());
+        w.Write("fmt "u8.ToArray()); w.Write(16); w.Write((short)1); w.Write((short)1); w.Write(24000); w.Write(48000); w.Write((short)2); w.Write((short)16);
+        w.Write("LIST"u8.ToArray()); w.Write(4); w.Write("INFO"u8.ToArray());
+        w.Write("data"u8.ToArray()); w.Write(0xFFFFFFFFu);
+        for (var i = 0; i < 2400; i++) w.Write((short)(i % 100));
+        var wav = ms.ToArray();
+
+        GroqSpeech.FixStreamingWavHeader(wav);
+
+        using var reader = new NAudio.Wave.WaveFileReader(new System.IO.MemoryStream(wav));
+        Assert.Equal(24000, reader.WaveFormat.SampleRate);
+        Assert.Equal(4800, reader.Length);
+    }
+
+    [Fact]
     public async Task Synthesize_NoKey_Throws()
     {
         var speech = new GroqSpeech(new HttpClient(new Capture()) { BaseAddress = new Uri(GroqWhisperProvider.BaseUrl) }, () => null);

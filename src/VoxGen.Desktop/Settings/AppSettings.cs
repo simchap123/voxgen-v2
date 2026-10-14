@@ -59,6 +59,9 @@ public sealed record AppSettings
     /// <summary>Groq Orpheus voice id for read-aloud (see <c>GroqSpeech.Voices</c>).</summary>
     public string HoverReadVoice { get; init; } = "hannah";
 
+    /// <summary>Keys held (with the mouse resting) to read aloud: "CtrlShift" or "CtrlAlt".</summary>
+    public string HoverReadShortcut { get; init; } = "CtrlShift";
+
     /// <summary>Read-aloud playback speed, 0.5–2.5 (set from the control bar's slower/faster).</summary>
     public double HoverReadRate { get; init; } = 1.0;
 

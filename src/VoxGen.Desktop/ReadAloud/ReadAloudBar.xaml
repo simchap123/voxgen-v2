@@ -22,8 +22,6 @@
       <Setter Property="Height" Value="28" />
       <Setter Property="Margin" Value="1,0" />
       <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
-      <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets" />
-      <Setter Property="FontSize" Value="12" />
       <Setter Property="Cursor" Value="Hand" />
       <Setter Property="Focusable" Value="False" />
       <Setter Property="Template">
@@ -44,6 +42,23 @@
         </Setter.Value>
       </Setter>
     </Style>
+    <!-- Icons are drawn as geometry, not an icon font, so they render identically everywhere. -->
+    <Style x:Key="IconStroke" TargetType="Path">
+      <Setter Property="Stroke" Value="{DynamicResource ForegroundBrush}" />
+      <Setter Property="StrokeThickness" Value="1.6" />
+      <Setter Property="StrokeStartLineCap" Value="Round" />
+      <Setter Property="StrokeEndLineCap" Value="Round" />
+      <Setter Property="StrokeLineJoin" Value="Round" />
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="Stretch" Value="Uniform" />
+    </Style>
+    <Style x:Key="IconFill" TargetType="Path">
+      <Setter Property="Fill" Value="{DynamicResource ForegroundBrush}" />
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="Stretch" Value="Uniform" />
+    </Style>
   </Window.Resources>
 
   <Border Background="{DynamicResource BackgroundBrush}"
@@ -63,7 +78,9 @@
                  VerticalAlignment="Center"
                  Margin="6,0,6,0" />
 
-      <Button Style="{StaticResource BarButton}" Content="&#xE738;" ToolTip="Slower" Click="OnSlower" />
+      <Button Style="{StaticResource BarButton}" ToolTip="Slower" Click="OnSlower">
+        <Path Style="{StaticResource IconStroke}" Data="M0,5 H10" Height="2" />
+      </Button>
       <TextBlock x:Name="RateText"
                  Text="1×"
                  MinWidth="34"
@@ -72,13 +89,21 @@
                  FontWeight="SemiBold"
                  VerticalAlignment="Center"
                  Foreground="{DynamicResource ForegroundBrush}" />
-      <Button Style="{StaticResource BarButton}" Content="&#xE710;" ToolTip="Faster" Click="OnFaster" />
+      <Button Style="{StaticResource BarButton}" ToolTip="Faster" Click="OnFaster">
+        <Path Style="{StaticResource IconStroke}" Data="M5,0 V10 M0,5 H10" />
+      </Button>
 
       <Rectangle Width="1" Height="16" Margin="4,0" Fill="{DynamicResource BorderBrush}" />
 
-      <Button x:Name="PauseButton" Style="{StaticResource BarButton}" Content="&#xE769;" ToolTip="Pause" Click="OnPause" />
-      <Button Style="{StaticResource BarButton}" Content="&#xE71A;" ToolTip="Stop" Click="OnStop" />
-      <Button x:Name="CopyButton" Style="{StaticResource BarButton}" Content="&#xE8C8;" ToolTip="Copy text" Click="OnCopy" />
+      <Button x:Name="PauseButton" Style="{StaticResource BarButton}" ToolTip="Pause" Click="OnPause">
+        <Path x:Name="PauseIcon" Style="{StaticResource IconFill}" Data="M1,0 H4 V10 H1 Z M6,0 H9 V10 H6 Z" />
+      </Button>
+      <Button Style="{StaticResource BarButton}" ToolTip="Stop" Click="OnStop">
+        <Path Style="{StaticResource IconFill}" Data="M0,0 H10 V10 H0 Z" Width="9" Height="9" />
+      </Button>
+      <Button x:Name="CopyButton" Style="{StaticResource BarButton}" ToolTip="Copy text" Click="OnCopy">
+        <Path x:Name="CopyIcon" Style="{StaticResource IconStroke}" Data="M3.5,0.5 H10.5 V7.5 H3.5 Z M0.5,3.5 V10.5 H7.5" />
+      </Button>
     </StackPanel>
   </Border>
 </Window>

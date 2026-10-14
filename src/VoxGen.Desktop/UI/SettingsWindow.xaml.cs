@@ -42,6 +42,7 @@ public partial class SettingsWindow : Window
     private readonly UpdateService _updates;
     private readonly HttpClient _groqHttp;
     private readonly Action _shutdownForUpdate;
+    private readonly Action<string> _previewSpeech;
 
     private bool _suppress;
     private bool _recordingHotkey;
@@ -58,8 +59,10 @@ public partial class SettingsWindow : Window
         HistoryStore history,
         UpdateService updates,
         HttpClient groqHttp,
-        Action shutdownForUpdate)
+        Action shutdownForUpdate,
+        Action<string> previewSpeech)
     {
+        _previewSpeech = previewSpeech;
         _settings = settings;
         _logger = logger;
         _deviceEnumerator = deviceEnumerator;
@@ -96,6 +99,7 @@ public partial class SettingsWindow : Window
         NavGeneral.IsChecked = name == "General";
         NavApiKey.IsChecked = name == "ApiKey";
         NavHistory.IsChecked = name == "History";
+        NavReadAloud.IsChecked = name == "ReadAloud";
         NavAbout.IsChecked = name == "About";
         if (name == "History") RefreshHistory();
         ShowSection(name);
@@ -133,6 +137,12 @@ public partial class SettingsWindow : Window
             ModeHold.IsChecked = s.HotkeyMode == HotkeyMode.Hold;
             ModeToggle.IsChecked = s.HotkeyMode == HotkeyMode.Toggle;
             HoverReadToggle.IsChecked = s.HoverReadEnabled;
+            ShortcutCtrlShift.IsChecked = s.HoverReadShortcut != "CtrlAlt";
+            ShortcutCtrlAlt.IsChecked = s.HoverReadShortcut == "CtrlAlt";
+            ReadAloudHowTo.Text = ReadAloudHowTo.Text.Replace(s.HoverReadShortcut == "CtrlAlt" ? "Ctrl+Shift" : "Ctrl+Alt",
+                                                              s.HoverReadShortcut == "CtrlAlt" ? "Ctrl+Alt" : "Ctrl+Shift");
+            SpeedSlider.Value = s.HoverReadRate;
+            SpeedLabel.Text = $"{s.HoverReadRate:0.##}×";
             VoiceCombo.SelectedItem = Array.IndexOf(GroqSpeech.Voices, s.HoverReadVoice) >= 0 ? s.HoverReadVoice : GroqSpeech.DefaultVoice;
             SaveTextToggle.IsChecked = s.SaveTextHistoryLocal;
             SaveAudioToggle.IsChecked = s.SaveAudioHistoryLocal;
@@ -298,6 +308,34 @@ public partial class SettingsWindow : Window
         {
             ReportSaveFailure("read aloud", error);
         }
+    }
+
+    private void OnShortcutChanged(object sender, RoutedEventArgs e)
+    {
+        if (_suppress) return;
+        var value = ShortcutCtrlAlt.IsChecked == true ? "CtrlAlt" : "CtrlShift";
+        if (!_settings.TryUpdate(c => c with { HoverReadShortcut = value }, out var error))
+        {
+            ReportSaveFailure("read-aloud shortcut", error);
+        }
+    }
+
+    private void OnSpeedChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_suppress || SpeedLabel is null) return;
+        var rate = Math.Round(e.NewValue / 0.25) * 0.25;
+        SpeedLabel.Text = $"{rate:0.##}×";
+        if (Math.Abs(rate - _settings.Current.HoverReadRate) < 0.001) return;
+        if (!_settings.TryUpdate(c => c with { HoverReadRate = rate }, out var error))
+        {
+            ReportSaveFailure("read-aloud speed", error);
+        }
+    }
+
+    private void OnPreviewVoiceClick(object sender, RoutedEventArgs e)
+    {
+        var voice = VoiceCombo.SelectedItem as string ?? GroqSpeech.DefaultVoice;
+        _previewSpeech($"Hi, I'm {char.ToUpper(voice[0]) + voice[1..]}. This is how VoxGen will read your screen.");
     }
 
     private void OnVoiceChanged(object sender, SelectionChangedEventArgs e)
@@ -575,6 +613,7 @@ public partial class SettingsWindow : Window
 
     private void OnNavGeneralClick(object sender, RoutedEventArgs e) => ShowSection("General");
     private void OnNavApiKeyClick(object sender, RoutedEventArgs e) => ShowSection("ApiKey");
+    private void OnNavReadAloudClick(object sender, RoutedEventArgs e) => ShowSection("ReadAloud");
     private void OnNavHistoryClick(object sender, RoutedEventArgs e) { RefreshHistory(); ShowSection("History"); }
     private void OnNavAboutClick(object sender, RoutedEventArgs e) => ShowSection("About");
 
@@ -583,6 +622,7 @@ public partial class SettingsWindow : Window
         GeneralPanel.Visibility = name == "General" ? Visibility.Visible : Visibility.Collapsed;
         ApiKeyPanel.Visibility = name == "ApiKey" ? Visibility.Visible : Visibility.Collapsed;
         HistoryPanel.Visibility = name == "History" ? Visibility.Visible : Visibility.Collapsed;
+        ReadAloudPanel.Visibility = name == "ReadAloud" ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility = name == "About" ? Visibility.Visible : Visibility.Collapsed;
     }
 

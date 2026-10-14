@@ -18,10 +18,11 @@ namespace VoxGen.Desktop.ReadAloud;
 public sealed class HoverReadService : IDisposable
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(60);
-    private static readonly TimeSpan DwellTime = TimeSpan.FromMilliseconds(350);
+    private static readonly TimeSpan DwellTime = TimeSpan.FromMilliseconds(250);
     // First UI Automation call in a process can take several seconds (COM/provider spin-up).
     private static readonly TimeSpan UiaTimeout = TimeSpan.FromSeconds(4);
-    private const int MoveTolerancePx = 6;
+    private const int MoveTolerancePx = 12;
+    private static readonly TimeSpan MinTapTime = TimeSpan.FromMilliseconds(80);
 
     private const int VK_SHIFT = 0x10;
     private const int VK_CONTROL = 0x11;
@@ -33,12 +34,17 @@ public sealed class HoverReadService : IDisposable
     private readonly SpeechPlayer _player;
     private readonly Func<bool> _enabled;
     private readonly Func<string> _shortcut;
+    private readonly Action? _pressedWhileDisabled;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _stop = new();
     private Task? _loop;
 
-    public HoverReadService(SpeechPlayer player, Func<bool> enabled, Func<string> shortcut, ILogger logger)
+    /// <param name="pressedWhileDisabled">Called when the shortcut is pressed but reading is off,
+    /// so the user gets told why nothing happens instead of silence.</param>
+    public HoverReadService(SpeechPlayer player, Func<bool> enabled, Func<string> shortcut, ILogger logger,
+                            Action? pressedWhileDisabled = null)
     {
+        _pressedWhileDisabled = pressedWhileDisabled;
         _shortcut = shortcut ?? throw new ArgumentNullException(nameof(shortcut));
         _player = player ?? throw new ArgumentNullException(nameof(player));
         _enabled = enabled ?? throw new ArgumentNullException(nameof(enabled));
@@ -64,12 +70,31 @@ public sealed class HoverReadService : IDisposable
         ? IsDown(VK_CONTROL) && IsDown(VK_MENU) && !IsDown(VK_SHIFT)
         : IsDown(VK_CONTROL) && IsDown(VK_SHIFT) && !IsDown(VK_MENU);
 
+    /// <summary>True if any key other than the modifiers and mouse buttons is down — i.e. the user is
+    /// typing a shortcut like Ctrl+Shift+T, not asking for a read.</summary>
+    private static bool OtherKeyDown()
+    {
+        for (var vk = 0x08; vk <= 0xFE; vk++)
+        {
+            if (vk is VK_SHIFT or VK_CONTROL or VK_MENU or >= 0xA0 and <= 0xA5) continue; // modifiers (incl. L/R)
+            if (vk is 0x5B or 0x5C) continue;                                          // Win keys
+            if (IsDown(vk)) return true;
+        }
+        return false;
+    }
+
     private async Task LoopAsync(CancellationToken ct)
     {
         (int X, int Y) anchor = (int.MinValue, int.MinValue);
         var restingSince = DateTime.UtcNow;
         var readHere = false;
         string? lastSpoken = null;
+
+        // Per-press tracking: supports both "hold and rest" and a quick tap (read on release).
+        var wasHeld = false;
+        var heldSince = DateTime.UtcNow;
+        var otherKeyUsed = false;
+        var readDuringPress = false;
 
         while (!ct.IsCancellationRequested)
         {
@@ -80,17 +105,52 @@ public sealed class HoverReadService : IDisposable
                 if (!_enabled())
                 {
                     if (_player.State != SpeechState.Idle) _player.Stop();
+                    var heldNow = TriggerHeld();
+                    if (heldNow && !wasHeld) _pressedWhileDisabled?.Invoke();
+                    wasHeld = heldNow;
                     continue;
                 }
 
-                if (!TriggerHeld())
+                var held = TriggerHeld();
+                if (!held)
                 {
+                    if (wasHeld)
+                    {
+                        var heldFor = DateTime.UtcNow - heldSince;
+                        _logger.Debug("Hover keys released", new()
+                        {
+                            ["heldMs"] = (int)heldFor.TotalMilliseconds,
+                            ["readDuringPress"] = readDuringPress,
+                            ["otherKeyUsed"] = otherKeyUsed,
+                        });
+
+                        // Quick tap while pointing: read on release (unless it was part of a shortcut).
+                        if (!readDuringPress && !otherKeyUsed && heldFor >= MinTapTime)
+                        {
+                            var pos0 = ScreenTextReader.CursorPosition();
+                            var (_, tapText) = await ReadTextWithTimeoutAsync(pos0.X, pos0.Y).ConfigureAwait(false);
+                            if (tapText is not null) _player.Speak(tapText);
+                        }
+                    }
+
                     // Keys released: keep reading, but allow the same text to be re-triggered later.
+                    wasHeld = false;
                     lastSpoken = null;
                     readHere = false;
                     anchor = (int.MinValue, int.MinValue);
                     continue;
                 }
+
+                if (!wasHeld)
+                {
+                    wasHeld = true;
+                    heldSince = DateTime.UtcNow;
+                    otherKeyUsed = false;
+                    readDuringPress = false;
+                    _logger.Debug("Hover keys down");
+                }
+                if (!otherKeyUsed && OtherKeyDown()) otherKeyUsed = true;
+                if (otherKeyUsed) continue;
 
                 var pos = ScreenTextReader.CursorPosition();
                 if (Math.Abs(pos.X - anchor.X) > MoveTolerancePx || Math.Abs(pos.Y - anchor.Y) > MoveTolerancePx)
@@ -113,6 +173,7 @@ public sealed class HoverReadService : IDisposable
                     _logger.Debug("Hover read: text lookup timed out; retrying");
                     continue;
                 }
+                readDuringPress = true;
                 if (text is null || text == lastSpoken) continue;
 
                 lastSpoken = text;

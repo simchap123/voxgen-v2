@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,7 +25,7 @@ public partial class App : Application
     private const string SingletonMutexName = @"Global\VoxGen-Desktop-Singleton-{D8F2E5F4-8A4F-4B1B-A7D6-9B5E2C3D1F4A}";
 
     /// <summary>Single source for the display version (logs + uninstall registry entry).</summary>
-    private const string AppVersion = "2.4.0";
+    private const string AppVersion = "2.4.1";
 
     private Mutex? _singletonMutex;
     private bool _ownsMutex;
@@ -51,6 +51,7 @@ public partial class App : Application
     private ReadAloudBar? _readAloudBar;
     private DateTime _lastHoverErrorUtc = DateTime.MinValue;
     private bool _openedTtsTermsPage;
+    private DateTime _lastHoverDisabledNoticeUtc = DateTime.MinValue;
     private bool _isPaused;
 
     // Dictation pipeline (this slice).
@@ -232,7 +233,20 @@ public partial class App : Application
             _speechPlayer,
             enabled: () => SettingsService.Current.HoverReadEnabled && !_isPaused && _apiKeys!.HasKey,
             shortcut: () => SettingsService.Current.HoverReadShortcut,
-            Logger);
+            Logger,
+            pressedWhileDisabled: () =>
+            {
+                // At most once a minute: say why the shortcut did nothing.
+                if (DateTime.UtcNow - _lastHoverDisabledNoticeUtc < TimeSpan.FromMinutes(1)) return;
+                _lastHoverDisabledNoticeUtc = DateTime.UtcNow;
+                var why = !SettingsService.Current.HoverReadEnabled
+                    ? "Read aloud is turned off. Turn it on in Settings → Read aloud."
+                    : _isPaused
+                        ? "VoxGen is paused. Right-click the tray icon and choose Resume."
+                        : "Add your Groq API key in Settings → API key to use read aloud.";
+                Logger.Info("Read-aloud shortcut pressed while disabled", new() { ["reason"] = why });
+                Dispatcher.BeginInvoke(() => _tray?.ShowBalloon("VoxGen read-aloud", why));
+            });
         _hoverReader.Start();
     }
 

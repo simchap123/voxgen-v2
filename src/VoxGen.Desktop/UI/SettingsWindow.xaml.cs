@@ -15,6 +15,7 @@ using VoxGen.Desktop.Audio;
 using VoxGen.Desktop.History;
 using VoxGen.Desktop.Hotkeys;
 using VoxGen.Desktop.Logging;
+using VoxGen.Desktop.ReadAloud;
 using VoxGen.Desktop.Settings;
 using VoxGen.Desktop.Transcription;
 using VoxGen.Desktop.Updater;
@@ -71,6 +72,7 @@ public partial class SettingsWindow : Window
         InitializeComponent();
 
         PopulateMicrophones();
+        VoiceCombo.ItemsSource = GroqSpeech.Voices;
 
         _settings.Changed += OnSettingsChanged;
         _apiKeys.Changed += OnApiKeyChanged;
@@ -130,6 +132,8 @@ public partial class SettingsWindow : Window
             HotkeyDisplay.Text = s.HotkeyValue;
             ModeHold.IsChecked = s.HotkeyMode == HotkeyMode.Hold;
             ModeToggle.IsChecked = s.HotkeyMode == HotkeyMode.Toggle;
+            HoverReadToggle.IsChecked = s.HoverReadEnabled;
+            VoiceCombo.SelectedItem = Array.IndexOf(GroqSpeech.Voices, s.HoverReadVoice) >= 0 ? s.HoverReadVoice : GroqSpeech.DefaultVoice;
             SaveTextToggle.IsChecked = s.SaveTextHistoryLocal;
             SaveAudioToggle.IsChecked = s.SaveAudioHistoryLocal;
             SelectMicrophone(s.SelectedMicrophoneId);
@@ -284,6 +288,25 @@ public partial class SettingsWindow : Window
         HistoryList.ItemsSource = rows;
         HistoryEmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ConfirmClearButton.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnHoverReadToggleClick(object sender, RoutedEventArgs e)
+    {
+        if (_suppress) return;
+        var requested = HoverReadToggle.IsChecked == true;
+        if (!_settings.TryUpdate(c => c with { HoverReadEnabled = requested }, out var error))
+        {
+            ReportSaveFailure("read aloud", error);
+        }
+    }
+
+    private void OnVoiceChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppress || VoiceCombo.SelectedItem is not string voice) return;
+        if (!_settings.TryUpdate(c => c with { HoverReadVoice = voice }, out var error))
+        {
+            ReportSaveFailure("voice", error);
+        }
     }
 
     private void OnSaveTextToggleClick(object sender, RoutedEventArgs e)

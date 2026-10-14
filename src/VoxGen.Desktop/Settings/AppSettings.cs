@@ -53,6 +53,15 @@ public sealed record AppSettings
     /// </summary>
     public bool LiveTypingEnabled { get; init; } = false;
 
+    /// <summary>Hold Ctrl+Shift and rest the mouse on something to hear it read aloud (Groq voice).</summary>
+    public bool HoverReadEnabled { get; init; } = true;
+
+    /// <summary>Groq Orpheus voice id for read-aloud (see <c>GroqSpeech.Voices</c>).</summary>
+    public string HoverReadVoice { get; init; } = "hannah";
+
+    /// <summary>Read-aloud playback speed, 0.5–2.5 (set from the control bar's slower/faster).</summary>
+    public double HoverReadRate { get; init; } = 1.0;
+
     /// <summary>Transcription language code (e.g. "en", "es"). null = auto-detect.</summary>
     public string? Language { get; init; }
 

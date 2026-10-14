@@ -130,6 +130,30 @@
                       Click="OnLiveTypingToggleClick" />
           </Grid>
 
+          <!-- Read aloud on hover. Hold Ctrl+Shift and rest the mouse on anything. -->
+          <Grid Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+              <TextBlock Text="Read aloud on hover" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="Hold Ctrl+Shift and rest the mouse on anything to hear it read. Select text first to read all of it. A small bar lets you slow down, speed up, pause, stop or copy. Uses your Groq key."
+                         Style="{DynamicResource MutedTextStyle}"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+              <ComboBox x:Name="VoiceCombo"
+                        Width="110"
+                        Margin="0,0,12,0"
+                        VerticalAlignment="Center"
+                        SelectionChanged="OnVoiceChanged" />
+              <CheckBox x:Name="HoverReadToggle"
+                        VerticalAlignment="Center"
+                        Click="OnHoverReadToggleClick" />
+            </StackPanel>
+          </Grid>
+
           <!-- Microphone picker. Persists SelectedMicrophoneId (authoritative) + name (display)
                via SettingsService; App re-initializes capture when the id changes. -->
           <Grid Margin="0,0,0,16">

@@ -1,0 +1,84 @@
+<Window x:Class="VoxGen.Desktop.ReadAloud.ReadAloudBar"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="VoxGen read aloud"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        Topmost="True"
+        SizeToContent="WidthAndHeight"
+        FontFamily="{DynamicResource DmSansFont}">
+
+  <!--
+    Tiny read-aloud controls: slower · rate · faster · pause/play · stop · copy.
+    Never takes focus (WS_EX_NOACTIVATE set in code) so the app being read keeps the keyboard.
+  -->
+  <Window.Resources>
+    <Style x:Key="BarButton" TargetType="Button">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Margin" Value="1,0" />
+      <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
+      <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bg" Background="Transparent" CornerRadius="14">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource HoverBrush}" />
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource AccentBrush}" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
+  <Border Background="{DynamicResource BackgroundBrush}"
+          BorderBrush="{DynamicResource BorderBrush}"
+          BorderThickness="1"
+          CornerRadius="18"
+          Padding="6,4"
+          Margin="8">
+    <Border.Effect>
+      <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.18" />
+    </Border.Effect>
+    <StackPanel Orientation="Horizontal">
+      <TextBlock x:Name="StatusDot"
+                 Text="●"
+                 FontSize="9"
+                 Foreground="{DynamicResource PrimaryBrush}"
+                 VerticalAlignment="Center"
+                 Margin="6,0,6,0" />
+
+      <Button Style="{StaticResource BarButton}" Content="&#xE738;" ToolTip="Slower" Click="OnSlower" />
+      <TextBlock x:Name="RateText"
+                 Text="1×"
+                 MinWidth="34"
+                 TextAlignment="Center"
+                 FontSize="12"
+                 FontWeight="SemiBold"
+                 VerticalAlignment="Center"
+                 Foreground="{DynamicResource ForegroundBrush}" />
+      <Button Style="{StaticResource BarButton}" Content="&#xE710;" ToolTip="Faster" Click="OnFaster" />
+
+      <Rectangle Width="1" Height="16" Margin="4,0" Fill="{DynamicResource BorderBrush}" />
+
+      <Button x:Name="PauseButton" Style="{StaticResource BarButton}" Content="&#xE769;" ToolTip="Pause" Click="OnPause" />
+      <Button Style="{StaticResource BarButton}" Content="&#xE71A;" ToolTip="Stop" Click="OnStop" />
+      <Button x:Name="CopyButton" Style="{StaticResource BarButton}" Content="&#xE8C8;" ToolTip="Copy text" Click="OnCopy" />
+    </StackPanel>
+  </Border>
+</Window>

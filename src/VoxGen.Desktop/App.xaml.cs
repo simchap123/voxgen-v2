@@ -11,6 +11,7 @@ using VoxGen.Desktop.Hotkeys;
 using VoxGen.Desktop.Installer;
 using VoxGen.Desktop.Logging;
 using VoxGen.Desktop.Overlay;
+using VoxGen.Desktop.ReadAloud;
 using VoxGen.Desktop.Settings;
 using VoxGen.Desktop.Transcription;
 using VoxGen.Desktop.Tray;
@@ -24,7 +25,7 @@ public partial class App : Application
     private const string SingletonMutexName = @"Global\VoxGen-Desktop-Singleton-{D8F2E5F4-8A4F-4B1B-A7D6-9B5E2C3D1F4A}";
 
     /// <summary>Single source for the display version (logs + uninstall registry entry).</summary>
-    private const string AppVersion = "2.1.1";
+    private const string AppVersion = "2.2.0";
 
     private Mutex? _singletonMutex;
     private bool _ownsMutex;
@@ -45,6 +46,11 @@ public partial class App : Application
     private HistoryStore? _history;
     private UpdateService? _updates;
     private GroqWhisperProvider? _transcriber;
+    private HoverReadService? _hoverReader;
+    private SpeechPlayer? _speechPlayer;
+    private ReadAloudBar? _readAloudBar;
+    private DateTime _lastHoverErrorUtc = DateTime.MinValue;
+    private bool _openedTtsTermsPage;
     private bool _isPaused;
 
     // Dictation pipeline (this slice).
@@ -113,6 +119,7 @@ public partial class App : Application
         WireDictation();
         WireHotkeys();
         WireSettingsReactions();
+        WireHoverRead();
         PromptForApiKeyIfMissing();
         _ = Task.Run(BackgroundUpdateCheckAsync);
 
@@ -173,6 +180,58 @@ public partial class App : Application
         _updateHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         _updates = new UpdateService(_updateHttp, Version.Parse(AppVersion), Logger);
         Logger.Info("Local services ready", new() { ["hasApiKey"] = _apiKeys.HasKey, ["canSelfUpdate"] = _updates.CanSelfUpdate });
+    }
+
+    /// <summary>Hold Ctrl+Shift + hover → Groq reads the text under the mouse.</summary>
+    private void WireHoverRead()
+    {
+        var speech = new GroqSpeech(_groqHttp!, () => _apiKeys!.Get());
+        _speechPlayer = new SpeechPlayer(
+            speech,
+            voice: () => SettingsService.Current.HoverReadVoice,
+            initialRate: SettingsService.Current.HoverReadRate,
+            reportError: message =>
+            {
+                // Groq makes each account accept the Orpheus voice terms once. Open that page for the
+                // user (once per run) instead of showing a raw API error.
+                if (message.Contains("terms acceptance", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (_openedTtsTermsPage) return;
+                    _openedTtsTermsPage = true;
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        try
+                        {
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = "https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english",
+                                UseShellExecute = true,
+                            });
+                        }
+                        catch (Exception ex) { Logger.Error("Failed to open Groq terms page", new() { ["error"] = ex.Message }); }
+                        _tray?.ShowBalloon("VoxGen read-aloud",
+                            "Groq needs you to accept the voice terms once. Accept them on the page that just opened, then try again.");
+                    });
+                    return;
+                }
+                // At most one balloon per 30 s so a bad key or offline spell doesn't spam.
+                if (DateTime.UtcNow - _lastHoverErrorUtc < TimeSpan.FromSeconds(30)) return;
+                _lastHoverErrorUtc = DateTime.UtcNow;
+                Dispatcher.BeginInvoke(() => _tray?.ShowBalloon("VoxGen read-aloud", message));
+            },
+            Logger);
+
+        _readAloudBar = new ReadAloudBar(_speechPlayer, persistRate: rate =>
+        {
+            if (!SettingsService.TryUpdate(c => c with { HoverReadRate = rate }, out var error))
+                Logger.Warning("Failed to save read-aloud speed", new() { ["error"] = error });
+        });
+
+        _hoverReader = new HoverReadService(
+            _speechPlayer,
+            enabled: () => SettingsService.Current.HoverReadEnabled && !_isPaused && _apiKeys!.HasKey,
+            Logger);
+        _hoverReader.Start();
     }
 
     /// <summary>First run (or key removed): open Settings on the API key page.</summary>
@@ -355,6 +414,9 @@ public partial class App : Application
         try { _settingsWindow?.ForceClose(); } catch { /* best effort */ }
         try { _hotkeys?.UnregisterAsync().GetAwaiter().GetResult(); } catch { /* best effort */ }
         _hotkeys = null;
+        try { _hoverReader?.Dispose(); } catch { /* best effort */ }
+        try { _speechPlayer?.Dispose(); } catch { /* best effort */ }
+        try { _readAloudBar?.Close(); } catch { /* best effort */ }
         try { _audioCapture?.Dispose(); } catch { /* best effort */ }
         try { _overlay?.Close(); } catch { /* best effort */ }
         _tray?.Dispose();

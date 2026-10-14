@@ -212,7 +212,7 @@ public sealed class GroqWhisperProvider : ITranscriptionProvider
         return string.IsNullOrWhiteSpace(text) ? raw : text;
     }
 
-    private static async Task<HttpResponseMessage> SendAsync(HttpClient http, HttpRequestMessage req, CancellationToken ct)
+    internal static async Task<HttpResponseMessage> SendAsync(HttpClient http, HttpRequestMessage req, CancellationToken ct)
     {
         try
         {
@@ -228,7 +228,7 @@ public sealed class GroqWhisperProvider : ITranscriptionProvider
         }
     }
 
-    private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken ct)
+    internal static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken ct)
     {
         if (response.IsSuccessStatusCode) return;
 

@@ -41,6 +41,9 @@ public sealed class NvidiaSpeech : ISpeechSynthesizer
     /// <summary>Magpie handles 600+ chars per call; ~400 keeps the first audio quick.</summary>
     public int MaxCharsPerRequest => 400;
 
+    private const int MaxAttempts = 3;
+    public static int RetryDelayMs = 400; // settable so tests run fast
+
     public static string FullVoiceName(string voice) =>
         $"Magpie-Multilingual.EN-US.{(Array.IndexOf(Voices, voice) >= 0 ? voice : DefaultVoice)}";
 
@@ -49,30 +52,44 @@ public sealed class NvidiaSpeech : ISpeechSynthesizer
         var key = _getApiKey();
         if (string.IsNullOrWhiteSpace(key)) throw new MissingApiKeyException();
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, Endpoint)
+        // NVIDIA's hosted functions occasionally drop a request server-side ("no existing session
+        // found", unavailable, 5xx). Those are transient, so retry a couple of times before failing.
+        byte[] body;
+        for (var attempt = 1; ; attempt++)
         {
-            Version = HttpVersion.Version20,
-            VersionPolicy = HttpVersionPolicy.RequestVersionExact,
-            Content = new ByteArrayContent(Frame(EncodeRequest(text, FullVoiceName(voice)))),
-        };
-        req.Content.Headers.ContentType = new MediaTypeHeaderValue("application/grpc");
-        req.Headers.TryAddWithoutValidation("te", "trailers");
-        req.Headers.TryAddWithoutValidation("authorization", "Bearer " + key);
-        req.Headers.TryAddWithoutValidation("function-id", MagpieFunctionId);
+            using var req = new HttpRequestMessage(HttpMethod.Post, Endpoint)
+            {
+                Version = HttpVersion.Version20,
+                VersionPolicy = HttpVersionPolicy.RequestVersionExact,
+                Content = new ByteArrayContent(Frame(EncodeRequest(text, FullVoiceName(voice)))),
+            };
+            req.Content.Headers.ContentType = new MediaTypeHeaderValue("application/grpc");
+            req.Headers.TryAddWithoutValidation("te", "trailers");
+            req.Headers.TryAddWithoutValidation("authorization", "Bearer " + key);
+            req.Headers.TryAddWithoutValidation("function-id", MagpieFunctionId);
 
-        using var response = await GroqWhisperProvider.SendAsync(_http, req, ct).ConfigureAwait(false);
-        var body = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+            using var response = await GroqWhisperProvider.SendAsync(_http, req, ct).ConfigureAwait(false);
+            body = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
 
-        var status = Header(response, "grpc-status");
-        var message = Uri.UnescapeDataString(Header(response, "grpc-message"));
-        if ((int)response.StatusCode is 401 or 403 || status is "16" or "7")
-            throw new InvalidApiKeyException(string.IsNullOrEmpty(message) ? "NVIDIA rejected the API key." : message);
-        if ((int)response.StatusCode == 429 || status == "8")
-            throw new GroqRateLimitedException("NVIDIA rate limit reached — wait a moment.");
-        if (!response.IsSuccessStatusCode || status is "14" or "13")
-            throw new GroqUnavailableException($"NVIDIA voice service unavailable ({(int)response.StatusCode} {status} {message}).".Trim());
-        if (!string.IsNullOrEmpty(status) && status != "0")
-            throw new GroqException($"NVIDIA voice error {status}: {message}");
+            var status = Header(response, "grpc-status");
+            var message = Uri.UnescapeDataString(Header(response, "grpc-message"));
+            if ((int)response.StatusCode is 401 or 403 || status is "16" or "7")
+                throw new InvalidApiKeyException(string.IsNullOrEmpty(message) ? "NVIDIA rejected the API key." : message);
+            if ((int)response.StatusCode == 429 || status == "8")
+                throw new GroqRateLimitedException("NVIDIA rate limit reached — wait a moment.");
+
+            var transient = (int)response.StatusCode >= 500 || status is "4" or "5" or "13" or "14";
+            if (transient && attempt < MaxAttempts)
+            {
+                await Task.Delay(RetryDelayMs * attempt, ct).ConfigureAwait(false);
+                continue;
+            }
+            if (!response.IsSuccessStatusCode || status is "14" or "13")
+                throw new GroqUnavailableException($"NVIDIA voice service unavailable ({(int)response.StatusCode} {status} {message}).".Trim());
+            if (!string.IsNullOrEmpty(status) && status != "0")
+                throw new GroqException($"NVIDIA voice hiccup (error {status}) — try again in a moment.");
+            break;
+        }
 
         var pcm = DecodeAudio(Unframe(body));
         if (pcm.Length == 0) throw new GroqException("NVIDIA returned no audio.");

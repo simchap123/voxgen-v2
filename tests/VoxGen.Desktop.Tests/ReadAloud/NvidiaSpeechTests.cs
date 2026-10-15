@@ -93,6 +93,34 @@ public class NvidiaSpeechTests
     }
 
     [Fact]
+    public async Task Synthesize_TransientSessionError_RetriesThenSucceeds()
+    {
+        NvidiaSpeech.RetryDelayMs = 1;
+        var pcm = new byte[] { 0, 1, 2, 3 };
+        var calls = 0;
+        var handler = new FakeGrpc(_ =>
+        {
+            calls++;
+            if (calls == 1)
+            {
+                var bad = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Array.Empty<byte>()) };
+                bad.TrailingHeaders.Add("grpc-status", "5");
+                bad.TrailingHeaders.Add("grpc-message", "no existing session found");
+                return bad;
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(NvidiaSpeech.Frame(new byte[] { 0x0A, (byte)pcm.Length }.Concat(pcm))),
+            };
+        });
+
+        var wav = await new NvidiaSpeech(new HttpClient(handler), () => "nvapi-test").SynthesizeAsync("Hi", "Aria", CancellationToken.None);
+
+        Assert.Equal(2, calls);
+        Assert.Equal(44 + pcm.Length, wav.Length);
+    }
+
+    [Fact]
     public async Task Synthesize_NoKey_Throws() =>
         await Assert.ThrowsAsync<MissingApiKeyException>(() =>
             new NvidiaSpeech(new HttpClient(), () => null).SynthesizeAsync("x", "Aria", CancellationToken.None));

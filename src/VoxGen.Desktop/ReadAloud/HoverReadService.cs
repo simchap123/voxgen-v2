@@ -31,6 +31,9 @@ public sealed class HoverReadService : IDisposable
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int vKey);
 
+    /// <summary>A copy newer than this counts as "what the user wants read" on a quick tap.</summary>
+    private static readonly TimeSpan RecentCopyWindow = TimeSpan.FromSeconds(20);
+
     private readonly SpeechPlayer _player;
     private readonly Func<bool> _enabled;
     private readonly Func<string> _shortcut;
@@ -101,6 +104,7 @@ public sealed class HoverReadService : IDisposable
             try
             {
                 await Task.Delay(PollInterval, ct).ConfigureAwait(false);
+                _clipboard.Poll();
 
                 if (!_enabled())
                 {
@@ -128,7 +132,7 @@ public sealed class HoverReadService : IDisposable
                         if (!readDuringPress && !otherKeyUsed && heldFor >= MinTapTime)
                         {
                             var pos0 = ScreenTextReader.CursorPosition();
-                            var (_, tapText) = await ReadTextWithTimeoutAsync(pos0.X, pos0.Y).ConfigureAwait(false);
+                            var tapText = await ReadForTapAsync(pos0.X, pos0.Y).ConfigureAwait(false);
                             if (tapText is not null) _player.Speak(tapText);
                         }
                     }
@@ -188,6 +192,34 @@ public sealed class HoverReadService : IDisposable
                 _logger.Warning("Hover-read loop error", new() { ["error"] = ex.Message });
             }
         }
+    }
+
+    private readonly RecentClipboard _clipboard = new();
+
+    /// <summary>
+    /// What a quick tap reads, in order: a highlight in the focused app (wherever the mouse is),
+    /// then text copied in the last few seconds (apps that draw their own highlight, like Claude
+    /// Code in a terminal, hand it over by copying), then whatever is under the mouse.
+    /// </summary>
+    private async Task<string?> ReadForTapAsync(int x, int y)
+    {
+        var lookup = Task.Run(() => ScreenTextReader.GetTextAt(x, y, selectionAnywhere: true));
+        var done = await Task.WhenAny(lookup, Task.Delay(UiaTimeout)).ConfigureAwait(false);
+        if (done == lookup && lookup.Result.Source == "selection" && lookup.Result.Text is not null)
+        {
+            _logger.Debug("Hover lookup", new() { ["x"] = x, ["y"] = y, ["source"] = "selection", ["chars"] = lookup.Result.Text.Length });
+            return lookup.Result.Text;
+        }
+
+        var copied = ScreenTextReader.Clean(_clipboard.TakeRecent(RecentCopyWindow));
+        if (copied is not null)
+        {
+            _logger.Debug("Hover lookup", new() { ["x"] = x, ["y"] = y, ["source"] = "recent-copy", ["chars"] = copied.Length });
+            return copied;
+        }
+
+        var (_, text) = await ReadTextWithTimeoutAsync(x, y).ConfigureAwait(false);
+        return text;
     }
 
     private async Task<(bool TimedOut, string? Text)> ReadTextWithTimeoutAsync(int x, int y)

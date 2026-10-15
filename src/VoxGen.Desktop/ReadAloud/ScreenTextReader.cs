@@ -35,7 +35,9 @@ public static class ScreenTextReader
     /// </summary>
     public readonly record struct ScreenText(string? Text, bool Weak, string Source = "");
 
-    public static ScreenText GetTextAt(int x, int y)
+    /// <param name="selectionAnywhere">Quick tap: a highlight in the focused app wins even when the
+    /// mouse has moved off it (hover-and-rest only uses a highlight in the app being pointed at).</param>
+    public static ScreenText GetTextAt(int x, int y, bool selectionAnywhere = false)
     {
         var point = new System.Windows.Point(x, y);
         AutomationElement element;
@@ -52,7 +54,7 @@ public static class ScreenTextReader
         // 0. Text the user selected in the app they're pointing at — read exactly that, wherever the
         //    mouse is within it. Uses the focused control, because hosts like Windows Terminal report
         //    only their outer window at the cursor.
-        var selected = TrySelectionInSameApp(element);
+        var selected = TrySelection(element, selectionAnywhere);
         if (selected is not null) return new(Clean(selected), false, "selection");
 
         // Containers (XAML islands, panes) can hide the real text control: drill to the deepest
@@ -88,12 +90,13 @@ public static class ScreenTextReader
         return new(Clean(text), weak, "name:" + kind);
     }
 
-    private static string? TrySelectionInSameApp(AutomationElement underCursor)
+    private static string? TrySelection(AutomationElement underCursor, bool anyApp)
     {
         try
         {
             var focused = AutomationElement.FocusedElement;
-            if (focused is null || focused.Current.ProcessId != underCursor.Current.ProcessId) return null;
+            if (focused is null) return null;
+            if (!anyApp && focused.Current.ProcessId != underCursor.Current.ProcessId) return null;
             if (!focused.TryGetCurrentPattern(TextPattern.Pattern, out var tp)) return null;
             var text = string.Concat(Array.ConvertAll(((TextPattern)tp).GetSelection(), r => r.GetText(8000) + " "));
             return string.IsNullOrWhiteSpace(text) ? null : text;

@@ -46,6 +46,7 @@ public class NvidiaSpeechTests
 
     [Theory]
     [InlineData("Leo", "Magpie-Multilingual.EN-US.Leo")]
+    [InlineData("Aria Calm", "Magpie-Multilingual.EN-US.Aria.Calm")]
     [InlineData("nobody", "Magpie-Multilingual.EN-US.Aria")]
     public void FullVoiceName_MapsKnownVoices_FallsBackToDefault(string voice, string expected) =>
         Assert.Equal(expected, NvidiaSpeech.FullVoiceName(voice));

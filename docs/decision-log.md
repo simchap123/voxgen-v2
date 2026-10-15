@@ -35,3 +35,10 @@ NVIDIA's hosted **Magpie TTS Multilingual** (build.nvidia.com free endpoint, fun
 - Key: separate DPAPI file `nvidia-key.bin` (entropy `VoxGen.NvidiaApiKey.v1`).
 - Considered **Chatterbox Multilingual** (also in the catalog, reachable with the key): returned
   500/502 on both gRPC and REST on 2026-10-14 — not usable yet; revisit later.
+- 2026-10-15 (v2.5.4): added Magpie's "Calm" variants (`<Name>.Calm`, smoother reading style) as
+  selectable voices; default stays Aria. Retries after a transient NVCF error ("no existing session
+  found") go out on a fresh HTTP/2 connection, since NVCF ties sessions to the connection.
+- 2026-10-15 (v2.5.3): read-aloud speed uses WSOLA time-stretch (`TimeStretch`) instead of
+  resample + SMB pitch shift, which sounded warbly at 1.5x and up.
+- Next (owner-approved 2026-10-15): optional local **Kokoro** engine (KokoroSharp.CPU, MIT; model
+  downloaded on first use) — added beside NVIDIA, not replacing it, until the owner has heard it.

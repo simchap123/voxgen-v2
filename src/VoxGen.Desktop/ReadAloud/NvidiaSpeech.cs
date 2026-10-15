@@ -25,15 +25,24 @@ public sealed class NvidiaSpeech : ISpeechSynthesizer
     public const string MagpieFunctionId = "877104f7-e885-42b9-8de8-f6e4c6303969";
     public const int SampleRate = 22050;
 
-    public static readonly string[] Voices = ["Aria", "Mia", "Sofia", "Jason", "Leo", "Ray"];
+    /// <summary>"Calm" variants are Magpie's own smoother, more measured reading style.</summary>
+    public static readonly string[] Voices =
+    [
+        "Aria", "Aria Calm", "Mia", "Mia Calm", "Sofia", "Sofia Calm",
+        "Jason", "Jason Calm", "Leo", "Leo Calm", "Ray", "Ray Calm",
+    ];
     public const string DefaultVoice = "Aria";
 
     private readonly HttpClient _http;
     private readonly Func<string?> _getApiKey;
+    private readonly Func<HttpClient>? _freshConnection;
 
     /// <param name="http">Any HttpClient; requests are sent as HTTP/2 (required by gRPC).</param>
-    public NvidiaSpeech(HttpClient http, Func<string?> getApiKey)
+    /// <param name="freshConnection">Used for retries: NVIDIA ties a "session" to the HTTP/2
+    /// connection and sometimes loses it, so a retry on a brand-new connection gets through.</param>
+    public NvidiaSpeech(HttpClient http, Func<string?> getApiKey, Func<HttpClient>? freshConnection = null)
     {
+        _freshConnection = freshConnection;
         _http = http ?? throw new ArgumentNullException(nameof(http));
         _getApiKey = getApiKey ?? throw new ArgumentNullException(nameof(getApiKey));
     }
@@ -45,7 +54,7 @@ public sealed class NvidiaSpeech : ISpeechSynthesizer
     public static int RetryDelayMs = 400; // settable so tests run fast
 
     public static string FullVoiceName(string voice) =>
-        $"Magpie-Multilingual.EN-US.{(Array.IndexOf(Voices, voice) >= 0 ? voice : DefaultVoice)}";
+        $"Magpie-Multilingual.EN-US.{(Array.IndexOf(Voices, voice) >= 0 ? voice : DefaultVoice).Replace(' ', '.')}";
 
     public async Task<byte[]> SynthesizeAsync(string text, string voice, CancellationToken ct)
     {
@@ -68,7 +77,8 @@ public sealed class NvidiaSpeech : ISpeechSynthesizer
             req.Headers.TryAddWithoutValidation("authorization", "Bearer " + key);
             req.Headers.TryAddWithoutValidation("function-id", MagpieFunctionId);
 
-            using var response = await GroqWhisperProvider.SendAsync(_http, req, ct).ConfigureAwait(false);
+            using var fresh = attempt > 1 ? _freshConnection?.Invoke() : null;
+            using var response = await GroqWhisperProvider.SendAsync(fresh ?? _http, req, ct).ConfigureAwait(false);
             body = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
 
             var status = Header(response, "grpc-status");

@@ -20,10 +20,9 @@ public enum SpeechState
 /// Plays read-aloud text: chunks it, synthesizes each chunk with Groq (prefetching the next while
 /// the current one plays), and supports pause/resume, stop, and live speed changes.
 ///
-/// Speed: Groq's voice has no rate parameter, so playback is time-stretched locally. The source is
-/// played "as if" recorded at rate × its sample rate (faster + higher), then pitch-shifted back by
-/// 1/rate so the voice keeps its natural pitch, then resampled to 48 kHz for the device. A speed
-/// change mid-sentence rebuilds that chain on the same reader, so it applies within ~a word.
+/// Speed: playback is time-stretched locally with <see cref="TimeStretch"/> (WSOLA), which keeps the
+/// voice's natural pitch and sounds clean at 2×+, then resampled to 48 kHz for the device. A speed
+/// change mid-sentence re-stretches the rest of the chunk from where the listener is.
 ///
 /// Thread-safety: public methods may be called from any thread. <see cref="StateChanged"/> fires on
 /// a background thread — UI subscribers marshal themselves.
@@ -166,23 +165,27 @@ public sealed class SpeechPlayer : IDisposable
 
     private async Task PlayChunkAsync(byte[] wav, CancellationToken ct)
     {
-        using var reader = new WaveFileReader(new MemoryStream(wav));
-        var source = reader.ToSampleProvider();
+        var (samples, sampleRate) = ReadMono(wav);
+        var inputPos = 0; // where in the original audio the current pass starts
 
-        while (true)
+        while (inputPos < samples.Length)
         {
             ct.ThrowIfCancellationRequested();
             double rate;
             var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var rateChanged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var output = new WaveOutEvent { DesiredLatency = 150 };
+            lock (_lock) rate = _rate;
+
+            // Speed change without a pitch change, done for the rest of the chunk up front.
+            var stretched = new ArrayProvider(TimeStretch.Stretch(samples, inputPos, sampleRate, rate), sampleRate);
+            ISampleProvider chain = sampleRate == OutputSampleRate ? stretched : new WdlResamplingSampleProvider(stretched, OutputSampleRate);
 
             lock (_lock)
             {
-                rate = _rate;
                 _rateChanged = rateChanged;
                 output.PlaybackStopped += (_, _) => finished.TrySetResult();
-                output.Init(BuildChain(source, rate));
+                output.Init(chain);
                 _output = output;
                 if (!_paused) output.Play();
             }
@@ -195,16 +198,12 @@ public sealed class SpeechPlayer : IDisposable
                     var done = await Task.WhenAny(finished.Task, rateChanged.Task).ConfigureAwait(false);
                     if (done == finished.Task) break; // chunk played out (or stopped)
 
-                    // Speed changed: stop this chain, rewind by roughly what the device had buffered,
-                    // and rebuild at the new rate from (about) the same spot.
-                    lock (_lock)
-                    {
-                        output.Stop();
-                        var rewind = (long)(reader.WaveFormat.AverageBytesPerSecond * 0.2 * rate);
-                        rewind -= rewind % reader.WaveFormat.BlockAlign;
-                        reader.Position = Math.Max(0, reader.Position - rewind);
-                    }
+                    // Speed changed: stop, work out where in the original audio we were (minus what
+                    // the device still had buffered), and redo the rest at the new speed.
+                    lock (_lock) output.Stop();
                     await finished.Task.ConfigureAwait(false);
+                    var heard = Math.Max(0, stretched.Position - (int)(sampleRate * 0.2));
+                    inputPos = Math.Min(samples.Length, inputPos + (int)(heard * rate));
                 }
             }
             finally
@@ -220,35 +219,42 @@ public sealed class SpeechPlayer : IDisposable
         ct.ThrowIfCancellationRequested();
     }
 
-    /// <summary>source → (faster/slower, same pitch) → mono 48 kHz float.</summary>
-    private static ISampleProvider BuildChain(ISampleProvider source, double rate)
+    /// <summary>Decodes a WAV to mono float samples.</summary>
+    private static (float[] Samples, int SampleRate) ReadMono(byte[] wav)
     {
-        ISampleProvider chain = source;
-        if (Math.Abs(rate - 1.0) > 0.001)
+        using var reader = new WaveFileReader(new MemoryStream(wav));
+        ISampleProvider source = reader.ToSampleProvider();
+        if (source.WaveFormat.Channels == 2) source = new StereoToMonoSampleProvider(source);
+        var all = new System.Collections.Generic.List<float>((int)(reader.SampleCount + 16));
+        var buffer = new float[8192];
+        int n;
+        while ((n = source.Read(buffer, 0, buffer.Length)) > 0)
         {
-            chain = new RateRelabel(source, rate);
-            chain = new SmbPitchShiftingSampleProvider(chain) { PitchFactor = (float)(1.0 / rate) };
+            for (var i = 0; i < n; i++) all.Add(buffer[i]);
         }
-        if (chain.WaveFormat.SampleRate != OutputSampleRate)
-        {
-            chain = new WdlResamplingSampleProvider(chain, OutputSampleRate);
-        }
-        return chain;
+        return (all.ToArray(), source.WaveFormat.SampleRate);
     }
 
-    /// <summary>Passes samples through unchanged but reports sampleRate × rate, so downstream
-    /// resampling consumes the source faster (rate &gt; 1) or slower (rate &lt; 1).</summary>
-    private sealed class RateRelabel : ISampleProvider
+    /// <summary>Plays a float array and reports how far it has been read.</summary>
+    private sealed class ArrayProvider : ISampleProvider
     {
-        private readonly ISampleProvider _source;
-        public RateRelabel(ISampleProvider source, double rate)
+        private readonly float[] _samples;
+        private int _position;
+        public ArrayProvider(float[] samples, int sampleRate)
         {
-            _source = source;
-            var f = source.WaveFormat;
-            WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat((int)Math.Round(f.SampleRate * rate), f.Channels);
+            _samples = samples;
+            WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1);
         }
         public WaveFormat WaveFormat { get; }
-        public int Read(float[] buffer, int offset, int count) => _source.Read(buffer, offset, count);
+        public int Position => Volatile.Read(ref _position);
+        public int Read(float[] buffer, int offset, int count)
+        {
+            var n = Math.Min(count, _samples.Length - _position);
+            if (n <= 0) return 0;
+            Array.Copy(_samples, _position, buffer, offset, n);
+            Volatile.Write(ref _position, _position + n);
+            return n;
+        }
     }
 
     public void Dispose() => Stop();
